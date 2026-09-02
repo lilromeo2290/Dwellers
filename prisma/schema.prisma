@@ -1,0 +1,68 @@
+// Dwellers — Prisma schema (FOUNDATION)
+//
+// Phase 1 establishes the base data layer conventions; the full marketplace
+// schema (providers, listings, projects, quotations, orders, payments,
+// messaging, reviews, geo hierarchy…) is delivered in Phase 2.
+//
+// Conventions used by every model in this project (see ARCHITECTURE.md):
+//  - id:        cuid() primary key
+//  - createdAt/updatedAt: automatic timestamps
+//  - status:    explicit lifecycle fields as strings (SQLite has no enums;
+//               values are validated at the application boundary via zod)
+//  - deletion:  soft deletion via deletedAt where records must be recoverable
+//  - money:     stored as integer minor units (pesewas) — never floats
+//  - indexes:   defined for every column used in lookups or ordering
+//  - @@map:     snake_case, plural table names
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+/// Platform account. One account per email; the role string is one of the
+/// values defined in src/lib/auth/roles.ts and is validated at the boundary.
+model User {
+  id              String    @id @default(cuid())
+  email           String    @unique
+  emailVerifiedAt DateTime?
+  passwordHash    String?   // null until credentials provider phase sets it
+  name            String?
+  phone           String?
+  role            String    @default("CUSTOMER")
+  status          String    @default("ACTIVE") // ACTIVE | SUSPENDED | DEACTIVATED
+  lastLoginAt     DateTime?
+  deletedAt       DateTime? // soft deletion
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([role])
+  @@index([status])
+  @@index([email])
+  @@map("users")
+}
+
+/// Immutable, append-only trail of security-relevant events (log/audit split:
+/// logger = operational telemetry, audit = who did what, queryable in DB).
+/// Written exclusively through src/lib/audit.ts — never directly.
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorId    String?  // null = system action
+  actorRole  String?
+  action     String   // one of AUDIT_ACTIONS in src/lib/audit.ts
+  entityType String?
+  entityId   String?
+  metadata   String?  // JSON string (redacted — no secrets)
+  ip         String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  @@index([actorId])
+  @@index([action])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
