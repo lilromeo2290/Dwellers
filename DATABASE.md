@@ -77,6 +77,16 @@ role (`OWNER | MANAGER | MEMBER`) and invitation state.
 
 ## 4. Businesses
 
+> **Phase 3 addition** — `Business.offersDelivery` (Boolean, default false):
+> shop-level delivery preference captured at supplier/equipment onboarding.
+> Pre-fills listing-level `deliveryAvailable` when listings are created in
+> later phases. Migration: `phase3_business_offers_delivery`.
+
+> **Phase 3 addition** — demo seed accounts now carry a password hash
+> (`Demo#Passw0rd`, scrypt) so authentication can be exercised in
+> development. Every demo row keeps `isSeedData=true` and stays `UNVERIFIED`;
+> never seed in production.
+
 **Business** is a company account owned by exactly one user (`ownerId`) and
 may have many team members. It carries `businessType`
 (`CONTRACTOR | CONSTRUCTION_COMPANY | SUPPLIER | EQUIPMENT_RENTAL | RETAIL |

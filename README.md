@@ -129,6 +129,9 @@ bun run verify           # 48 checks — RBAC, errors, pagination, storage,
 bun run verify:phase2    # 106 checks — domain entities, ownership/IDOR,
                          # money policy, phone validation, storage streaming,
                          # rate limiter, client IP (isolated test database)
+bun run verify:phase3    # 73 checks — registration (6 paths), login/logout,
+                         # sessions, passwords, account status, ownership,
+                         # notifications, audit, live HTTP auth flows
 ```
 
 ### Lint & types

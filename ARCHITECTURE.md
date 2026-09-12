@@ -312,9 +312,9 @@ control for private objects is enforced by the API routes that serve them.
 | ----- | ----- | ------ |
 | **Phase 1** | Foundation, architecture & standards | **Complete** (gate: PASS WITH CONDITIONS) |
 | **Phase 2** | Database schema & backend foundation (full domain model, first API surface, remediation) | **Complete** |
-| Phase 3 | Authentication, registration & role-based dashboards | Next — awaiting owner approval |
+| Phase 3 | Authentication, registration & role-based dashboards | ✅ Delivered (see AUTHENTICATION.md) |
 | Phase 4+ | Marketplace UI, commerce, communication, trust features | Indicative |
 
 Phase sequencing beyond Phase 2 is indicative and confirmed per product
-priorities. **The project does not proceed to Phase 3 without explicit
+priorities. **The project does not proceed to Phase 4 without explicit
 instruction.**
