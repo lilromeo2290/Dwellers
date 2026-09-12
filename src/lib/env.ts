@@ -29,13 +29,9 @@ const requiredInProduction = z
   .string()
   .optional()
   .refine(
-    (value, ctx) => {
+    (value) => {
       const appEnv = process.env.APP_ENV ?? process.env.NODE_ENV ?? 'development'
-      if (appEnv === 'production' && !value) {
-        ctx.addIssue({ code: 'custom', message: 'is required in production' })
-        return false
-      }
-      return true
+      return !(appEnv === 'production' && !value)
     },
     { message: 'is required in production' },
   )
@@ -71,6 +67,13 @@ const envSchema = z.object({
   PAYSTACK_SECRET_KEY: z.string().optional(),
   REDIS_URL: z.string().url().optional(),
 
+  // Networking -----------------------------------------------------------------
+  // true ONLY when the deployment sits behind a reverse proxy we control
+  // (Caddy/NGINX/CDN). Forwarded headers are ignored otherwise.
+  TRUST_PROXY_ENABLED: booleanish,
+  /** Number of trusted proxy hops in front of the app (topology-specific). */
+  TRUSTED_PROXY_HOPS: z.coerce.number().int().min(0).max(8).default(1),
+
   // Flags ---------------------------------------------------------------- them
   RATE_LIMIT_ENABLED: booleanish,
 })
@@ -103,6 +106,10 @@ function loadEnv(): Env {
   return {
     ...value,
     RATE_LIMIT_ENABLED: value.RATE_LIMIT_ENABLED ?? appEnv !== 'development',
+    // Opt-in: trust forwarded headers ONLY when the deployment explicitly
+    // declares a trusted proxy topology. Defaults to false everywhere —
+    // direct deployments must never let clients forge their source IP.
+    TRUST_PROXY_ENABLED: value.TRUST_PROXY_ENABLED ?? false,
     appEnv,
     isProduction: appEnv === 'production',
     isDevelopment: appEnv === 'development',

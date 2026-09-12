@@ -12,7 +12,8 @@
  *  - Metadata is redacted through the logger's redactor before storage.
  */
 import { db } from '@/lib/db'
-import { LogEvent, logger } from '@/lib/logger'
+import { LogEvent, logger, type LogEventName } from '@/lib/logger'
+import { getClientIp } from '@/lib/rate-limit'
 
 /** Canonical audit actions. Extend as modules ship; keep names stable. */
 export const AUDIT_ACTIONS = {
@@ -98,7 +99,7 @@ export async function recordAudit(entry: AuditEntry): Promise<void> {
 /** Convenience wrapper extracting ip/user-agent from an API request. */
 export function auditContextFromRequest(request: Request): Pick<AuditEntry, 'ip' | 'userAgent'> {
   return {
-    ip: request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? request.headers.get('x-real-ip') ?? undefined,
+    ip: getClientIp(request),
     userAgent: request.headers.get('user-agent') ?? undefined,
   }
 }

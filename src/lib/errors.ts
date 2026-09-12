@@ -28,6 +28,8 @@ interface AppErrorOptions {
   details?: unknown
   /** Root cause kept for server logs only — never serialised to responses. */
   cause?: unknown
+  /** false marks non-operational errors (bugs) for alerting; defaults true. */
+  isOperational?: boolean
 }
 
 export class AppError extends Error {
@@ -43,7 +45,7 @@ export class AppError extends Error {
     this.code = code
     this.status = status
     this.details = options.details
-    this.isOperational = true
+    this.isOperational = options.isOperational ?? true
     Error.captureStackTrace?.(this, new.target)
   }
 }
@@ -113,8 +115,10 @@ export class ServiceUnavailableError extends AppError {
 
 export class InternalError extends AppError {
   constructor(options: AppErrorOptions = {}) {
-    super('INTERNAL_ERROR', 500, 'Something went wrong on our side. Please try again.', options)
-    this.isOperational = false
+    super('INTERNAL_ERROR', 500, 'Something went wrong on our side. Please try again.', {
+      ...options,
+      isOperational: false,
+    })
   }
 }
 

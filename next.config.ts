@@ -3,19 +3,17 @@ import type { NextConfig } from "next";
 /**
  * Dwellers — Next.js configuration.
  *
- * Known technical debt (documented in ARCHITECTURE.md):
- *  - typescript.ignoreBuildErrors is inherited from the scaffold and must be
- *    disabled (set to false) once the codebase reaches full type coverage.
- *
- * Security headers are ALSO set at runtime in src/proxy.ts; duplicating the
- * static ones here covers static assets served without the proxy path.
+ * Type safety is enforced: the compiler runs on every build and failures fail
+ * the build (Phase 1 gate condition, resolved in Phase 2). Security headers
+ * are ALSO set at runtime in src/proxy.ts; duplicating the static ones here
+ * covers static assets served without the proxy path.
  */
 const nextConfig: NextConfig = {
   output: "standalone",
   typescript: {
-    ignoreBuildErrors: true, // TODO(tech-debt): remove after type-coverage pass
+    ignoreBuildErrors: false,
   },
-  reactStrictMode: false,
+  reactStrictMode: true,
   poweredByHeader: false,
   async headers() {
     return [

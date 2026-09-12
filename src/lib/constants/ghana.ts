@@ -37,9 +37,15 @@ export const GHANA_DIALING_CODE = '+233'
 /**
  * Validates a Ghanaian mobile number (local `0XXXXXXXXX` or international
  * `+233XXXXXXXXX`) without third-party libs.
+ *
+ * Ghanaian mobile numbers are 9 significant digits: a network digit (2 or 5,
+ * covering all current mobile ranges — MTN 024/025/054/055/059, Telecel
+ * 020/050, AirtelTigo 026/027/056/057) followed by 8 subscriber digits.
  */
+const GHANA_PHONE_PATTERN = /^(?:\+233|0)[235]\d{8}$/
+
 export function isGhanaPhoneNumber(value: string): boolean {
-  return /^(?:\+233|0)(?:2|5|)\d{8}$/.test(value.replace(/[\s-]/g, ''))
+  return GHANA_PHONE_PATTERN.test(value.replace(/[\s-]/g, ''))
 }
 
 /** Normalises a Ghanaian phone number to international format (+233…). */

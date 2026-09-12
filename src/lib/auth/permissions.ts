@@ -14,6 +14,7 @@
  *    module services that load the resource (Phase 2+ pattern:
  *    load → verify owner/staff → act).
  */
+import type { Role } from '@/lib/auth/roles'
 
 export const PERMISSION_DOMAINS = [
   'identity',

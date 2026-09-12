@@ -56,6 +56,8 @@ const REDACTED = '[redacted]'
 const SENSITIVE_KEY_PATTERN =
   /(password|passwd|secret|token|authorization|auth|api[-_]?key|cookie|session|credential|card|pin|momo|otp)/i
 
+function redact(value: object, depth?: number): Record<string, unknown>
+function redact(value: unknown, depth?: number): unknown
 function redact(value: unknown, depth = 0): unknown {
   if (depth > 6) return '[depth-limit]'
   if (value === null || value === undefined) return value

@@ -22,7 +22,7 @@ const MB = 1024 * 1024
 
 export const UPLOAD_POLICIES: Record<StorageCategory, UploadPolicy> = {
   'profile-image': { label: 'Profile image', allowedMime: ['image/jpeg', 'image/png', 'image/webp'], maxBytes: 5 * MB },
-  'business-logo': { label: 'Business logo', allowedMime: ['image/jpeg', 'image/png', 'image/webp', 'image/svg+xml'], maxBytes: 2 * MB },
+  'business-logo': { label: 'Business logo', allowedMime: ['image/jpeg', 'image/png', 'image/webp'], maxBytes: 2 * MB },
   'product-image': { label: 'Product image', allowedMime: ['image/jpeg', 'image/png', 'image/webp'], maxBytes: 8 * MB },
   'portfolio-image': { label: 'Portfolio image', allowedMime: ['image/jpeg', 'image/png', 'image/webp'], maxBytes: 8 * MB },
   'project-image': { label: 'Project image', allowedMime: ['image/jpeg', 'image/png', 'image/webp'], maxBytes: 8 * MB },
@@ -45,6 +45,15 @@ export interface ValidatedUpload {
   contentType: string
   size: number
 }
+
+/**
+ * MIME types never accepted from users. SVG is a stored-XSS vector: it can
+ * carry <script> payloads that execute in the origin serving it. If SVG ever
+ * becomes a legitimate need (e.g. admin-uploaded brand assets), it MUST be
+ * sanitised server-side and served from a sandboxed origin — MIME checks
+ * alone are never sufficient (content can lie about its type).
+ */
+const BLOCKED_MIME = new Set(['image/svg+xml'])
 
 /** Strips directories and dangerous characters; keeps a human-readable stem. */
 export function sanitizeFilename(filename: string): string {
@@ -80,6 +89,11 @@ export function validateUpload(
   }
   if (candidate.size > policy.maxBytes) {
     throw new PayloadTooLargeError(policy.maxBytes)
+  }
+  if (BLOCKED_MIME.has(candidate.contentType)) {
+    throw new UnsupportedMediaTypeError(
+      `${policy.label} cannot be SVG. Use PNG, JPEG or WEBP.`,
+    )
   }
   if (!policy.allowedMime.includes(candidate.contentType)) {
     throw new UnsupportedMediaTypeError(

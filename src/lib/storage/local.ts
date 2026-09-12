@@ -6,13 +6,13 @@
  * keys — client data NEVER influences the physical path directly.
  *
  * Access control note: uploaded objects are not publicly guessable (UUID keys)
- * but are also not access-checked by the filesystem itself. When private
- * objects (documents, attachments) go live in Phase 2+, they are served
- * through authenticated API routes that verify the caller's permission to the
- * parent resource before streaming the file.
+ * but are also not access-checked by the filesystem itself. Private objects
+ * (documents, attachments) are served through authenticated API routes that
+ * verify the caller's permission to the parent resource before streaming.
  */
 import { createReadStream, existsSync } from 'node:fs'
-import { mkdir, stat, unlink, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, stat, unlink, writeFile } from 'node:fs/promises'
+import { Readable } from 'node:stream'
 import path from 'node:path'
 import { NotFoundError } from '@/lib/errors'
 import { env } from '@/lib/env'
@@ -46,16 +46,22 @@ export class LocalStorageProvider implements StorageProvider {
   async get(key: string): Promise<{ data: Buffer; contentType: string }> {
     const target = this.resolve(key)
     if (!existsSync(target)) throw new NotFoundError('File')
-    const { readFile } = await import('node:fs/promises')
     const data = await readFile(target)
     return { data, contentType: 'application/octet-stream' }
   }
 
-  /** Streams a stored object — for authenticated download routes. */
-  stream(key: string): ReadableStream {
+  /**
+   * Streams a stored object — for authenticated download routes.
+   *
+   * Uses Node's official `Readable.toWeb` adapter to convert the fs read
+   * stream into a WHATWG ReadableStream (never a bare type cast of the Node
+   * stream, which would lack the web-stream protocol at runtime).
+   */
+  stream(key: string): ReadableStream<Uint8Array> {
     const target = this.resolve(key)
     if (!existsSync(target)) throw new NotFoundError('File')
-    return createReadStream(target) as unknown as ReadableStream
+    const nodeStream = createReadStream(target)
+    return Readable.toWeb(nodeStream) as ReadableStream<Uint8Array>
   }
 
   async delete(key: string): Promise<void> {

@@ -31,6 +31,11 @@ export interface StorageProvider {
   readonly name: string
   put(key: string, data: Buffer, contentType: string): Promise<StoredObject>
   get(key: string): Promise<{ data: Buffer; contentType: string }>
+  /**
+   * Streams the object body as a WHATWG ReadableStream — used by
+   * authenticated download routes so large files never buffer in memory.
+   */
+  stream(key: string): ReadableStream<Uint8Array>
   delete(key: string): Promise<void>
   exists(key: string): Promise<boolean>
   /** Public/CDN URL when the driver serves objects publicly; else null (use signed URLs / API streaming). */

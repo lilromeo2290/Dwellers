@@ -118,7 +118,18 @@ export function createHandler<TBody = unknown, TQuery = Record<string, string>, 
         : (Object.fromEntries(url.searchParams) as TQuery)
 
       // 5. Business logic ------------------------------------------------------
-      const result = await handler({ request, params, body, query, auth, requestId })
+      // Factory invariant: when `bodySchema`/`querySchema` are configured the
+      // corresponding values below are their parsed outputs; when absent, the
+      // generic defaults to a type that accepts `undefined`. Handlers that
+      // need a body MUST declare bodySchema.
+      const result = await handler({
+        request,
+        params,
+        body: body as TBody,
+        query: query as TQuery,
+        auth,
+        requestId,
+      })
 
       // Handler returned a ready-made NextResponse (streaming/override cases).
       if (result instanceof NextResponse) {

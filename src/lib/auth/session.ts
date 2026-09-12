@@ -45,9 +45,8 @@ export const authOptions: NextAuthOptions = {
       if (user) {
         const dwellersToken = token as DwellersToken
         dwellersToken.userId = user.id
-        dwellersToken.role = (user as { role?: string }).role
-          ? (user as { role: string }).role as Role
-          : DEFAULT_ROLE
+        const maybeRole = (user as { role?: string }).role
+        dwellersToken.role = isRole(maybeRole) ? maybeRole : DEFAULT_ROLE
       }
       return token
     },
