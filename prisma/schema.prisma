@@ -1,17 +1,26 @@
-// Dwellers — Prisma schema (FOUNDATION)
+// Dwellers — Prisma schema (PHASE 2: DATABASE SCHEMA & BACKEND FOUNDATION)
 //
-// Phase 1 establishes the base data layer conventions; the full marketplace
-// schema (providers, listings, projects, quotations, orders, payments,
-// messaging, reviews, geo hierarchy…) is delivered in Phase 2.
+// The complete domain model for the nationwide Ghanaian construction
+// marketplace: identity, businesses, providers, the Ghana geo hierarchy,
+// marketplace listings (services, products, equipment), job requests
+// (RFQ), quotations, projects, messaging, notifications, reviews,
+// verification, portfolio, favorites, orders and payments.
 //
-// Conventions used by every model in this project (see ARCHITECTURE.md):
+// Conventions used by every model in this project (see DATABASE.md):
 //  - id:        cuid() primary key
 //  - createdAt/updatedAt: automatic timestamps
 //  - status:    explicit lifecycle fields as strings (SQLite has no enums;
-//               values are validated at the application boundary via zod)
+//               values are validated at the application boundary via zod —
+//               PostgreSQL keeps full compatibility)
 //  - deletion:  soft deletion via deletedAt where records must be recoverable
+//               or must keep referencing history intact
 //  - money:     stored as integer minor units (pesewas) — never floats
-//  - indexes:   defined for every column used in lookups or ordering
+//  - quantity:  stored as integer thousandths (`quantityMilli` = qty × 1000)
+//               because the SQLite connector has no Decimal type
+//  - JSON:      stored as String columns holding JSON documents (portable);
+//               secrets are never written into these columns
+//  - indexes:   defined for every column used in lookups, filters or ordering
+//               (query-pattern driven — see DATABASE.md § Indexing strategy)
 //  - @@map:     snake_case, plural table names
 
 generator client {
@@ -23,21 +32,54 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// =============================================================================
+// IDENTITY
+// =============================================================================
+
 /// Platform account. One account per email; the role string is one of the
 /// values defined in src/lib/auth/roles.ts and is validated at the boundary.
+/// Role escalation is prevented server-side (RBAC + canManageRole).
 model User {
   id              String    @id @default(cuid())
   email           String    @unique
   emailVerifiedAt DateTime?
-  passwordHash    String?   // null until credentials provider phase sets it
+  phone           String?   @unique // normalised to +233… (see ghana.ts)
+  phoneVerifiedAt DateTime?
+  passwordHash    String? // scrypt — never plaintext (src/lib/auth/password.ts)
   name            String?
-  phone           String?
+  avatarKey       String? // storage key (uploads/profile-images/…)
   role            String    @default("CUSTOMER")
   status          String    @default("ACTIVE") // ACTIVE | SUSPENDED | DEACTIVATED
   lastLoginAt     DateTime?
+  /// Marks rows created by the development seed — never set on real accounts.
+  isSeedData      Boolean   @default(false)
   deletedAt       DateTime? // soft deletion
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
+
+  profile                 PersonalProfile?
+  providerProfile         ProviderProfile?
+  ownedBusinesses         Business[]                @relation("BusinessOwner")
+  businessMemberships     BusinessMember[]          @relation("BusinessMemberUser")
+  invitedMemberships      BusinessMember[]          @relation("BusinessMemberInviter")
+  products                Product[]                 @relation("ProductSeller")
+  equipment               Equipment[]               @relation("EquipmentOwner")
+  customerJobRequests     JobRequest[]              @relation("JobRequestCustomer")
+  customerQuotes          Quote[]                   @relation("QuoteCustomer")
+  customerProjects        Project[]                 @relation("ProjectCustomer")
+  assignedTasks           ProjectTask[]             @relation("TaskAssignee")
+  createdConversations    Conversation[]            @relation("ConversationCreator")
+  conversationMemberships ConversationParticipant[] @relation("ConversationParticipantUser")
+  sentMessages            Message[]                 @relation("MessageSender")
+  messageReadReceipts     MessageRead[]             @relation("MessageReader")
+  notifications           Notification[]            @relation("NotificationRecipient")
+  writtenReviews          Review[]                  @relation("ReviewAuthor")
+  submittedVerifications  Verification[]            @relation("VerificationSubmitter")
+  reviewedVerifications   Verification[]            @relation("VerificationReviewer")
+  favorites               Favorite[]                @relation("FavoriteOwner")
+  customerOrders          Order[]                   @relation("OrderCustomer")
+  sellerOrders            Order[]                   @relation("OrderSeller")
+  payments                Payment[]                 @relation("PaymentPayer")
 
   @@index([role])
   @@index([status])
@@ -45,17 +87,1150 @@ model User {
   @@map("users")
 }
 
-/// Immutable, append-only trail of security-relevant events (log/audit split:
-/// logger = operational telemetry, audit = who did what, queryable in DB).
-/// Written exclusively through src/lib/audit.ts — never directly.
+/// Casual profile details for every account (display identity + contact).
+model PersonalProfile {
+  id          String   @id @default(cuid())
+  userId      String   @unique
+  bio         String?
+  addressLine String?
+  locationId  String? // FK → Town
+  website     String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user     User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  location Town? @relation(fields: [locationId], references: [id], onDelete: SetNull)
+
+  @@index([locationId])
+  @@map("personal_profiles")
+}
+
+// =============================================================================
+// BUSINESSES
+// =============================================================================
+
+/// A company/business account (contractor firm, construction company,
+/// material supplier shop, equipment rental yard…). A business is OWNED by a
+/// user and may have several team members (BusinessMember). Businesses are
+/// optional — individual artisans never need one.
+model Business {
+  id                 String    @id @default(cuid())
+  ownerId            String
+  name               String
+  slug               String    @unique
+  businessType       String // CONTRACTOR | CONSTRUCTION_COMPANY | SUPPLIER | EQUIPMENT_RENTAL | RETAIL | OTHER
+  description        String?
+  logoKey            String?
+  email              String?
+  phone              String?
+  locationId         String? // FK → Town (head office / yard)
+  registrationNumber String? // Registrar-General number where applicable
+  taxId              String?
+  verificationStatus String    @default("UNVERIFIED") // UNVERIFIED | PENDING | VERIFIED | REJECTED
+  status             String    @default("ACTIVE") // ACTIVE | SUSPENDED | DELETED
+  isSeedData         Boolean   @default(false)
+  deletedAt          DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  owner          User                  @relation("BusinessOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  location       Town?                 @relation("BusinessTowns", fields: [locationId], references: [id], onDelete: SetNull)
+  members        BusinessMember[]
+  serviceAreas   BusinessServiceArea[]
+  providers      ProviderProfile[]     @relation("BusinessProviders")
+  services       Service[]             @relation("BusinessServices")
+  products       Product[]             @relation("BusinessProducts")
+  equipment      Equipment[]           @relation("BusinessEquipment")
+  portfolioItems PortfolioItem[]       @relation("BusinessPortfolio")
+  reviews        Review[]              @relation("BusinessReviews")
+  verifications  Verification[]        @relation("BusinessVerifications")
+  orders         Order[]               @relation("OrderSellerBusiness")
+  projects       Project[]             @relation("BusinessProjects")
+
+  @@index([ownerId])
+  @@index([businessType])
+  @@index([status])
+  @@index([locationId])
+  @@map("businesses")
+}
+
+/// Team membership linking users to a business (owner, manager, member).
+model BusinessMember {
+  id          String    @id @default(cuid())
+  businessId  String
+  userId      String
+  memberRole  String    @default("MEMBER") // OWNER | MANAGER | MEMBER
+  status      String    @default("ACTIVE") // ACTIVE | INVITED | REMOVED
+  invitedById String?
+  joinedAt    DateTime? @default(now())
+  leftAt      DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  business  Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  user      User     @relation("BusinessMemberUser", fields: [userId], references: [id], onDelete: Cascade)
+  invitedBy User?    @relation("BusinessMemberInviter", fields: [invitedById], references: [id], onDelete: SetNull)
+
+  @@unique([businessId, userId])
+  @@index([userId])
+  @@map("business_members")
+}
+
+// =============================================================================
+// PROVIDERS
+// =============================================================================
+
+/// Professional marketplace profile (artisans, contractors, companies acting
+/// as providers). Supports BOTH individual artisans (businessId = null) and
+/// business-affiliated professionals. Carries the matching signals used by
+/// the future provider-matching engine (see Part 15 of the phase plan):
+/// profession, service areas, availability, verification, rating summary,
+/// completed jobs and response rate.
+model ProviderProfile {
+  id                  String    @id @default(cuid())
+  userId              String    @unique
+  businessId          String? // set when the provider operates under a business
+  profession          String // normalised trade key, e.g. "plumber"
+  headline            String?
+  biography           String?
+  yearsExperience     Int       @default(0)
+  availabilityStatus  String    @default("AVAILABLE") // AVAILABLE | BUSY | UNAVAILABLE
+  startingPriceAmount Int? // integer pesewas
+  currency            String    @default("GHS")
+  verificationStatus  String    @default("UNVERIFIED") // UNVERIFIED | PENDING | VERIFIED | REJECTED
+  /// Rating summary: average = ratingSum / ratingCount (0–5 scale, ×100 precision).
+  ratingSum           Int       @default(0)
+  ratingCount         Int       @default(0)
+  completedJobsCount  Int       @default(0)
+  responseRatePercent Int? // 0–100
+  primaryLocationId   String? // base location (e.g. Nsawam) — FK → Town
+  isSeedData          Boolean   @default(false)
+  deletedAt           DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  user              User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  business          Business?             @relation("BusinessProviders", fields: [businessId], references: [id], onDelete: SetNull)
+  primaryLocation   Town?                 @relation("ProviderBaseTown", fields: [primaryLocationId], references: [id], onDelete: SetNull)
+  serviceAreas      ProviderServiceArea[]
+  services          Service[]
+  directJobRequests JobRequest[]          @relation("JobRequestProvider")
+  quotes            Quote[]
+  providerProjects  Project[]             @relation("ProviderProjects")
+  portfolioItems    PortfolioItem[]       @relation("ProviderPortfolio")
+  reviews           Review[]              @relation("ProviderReviews")
+  verifications     Verification[]        @relation("ProviderVerifications")
+
+  @@index([profession])
+  @@index([verificationStatus])
+  @@index([availabilityStatus])
+  @@index([businessId])
+  @@index([primaryLocationId])
+  @@map("provider_profiles")
+}
+
+// =============================================================================
+// GHANA LOCATION HIERARCHY (nationwide — never Accra-only)
+// =============================================================================
+// GHANA → REGION → DISTRICT/MUNICIPALITY/METROPOLITAN → TOWN/CITY → COMMUNITY
+// Reference data is seeded in the database (16 regions first) and extended
+// data-driven — never hard-coded into application code. Coordinates are kept
+// where available (lat/lng, WGS84).
+
+/// One of Ghana's 16 administrative regions (ISO 3166-2:GH).
+model Region {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  slug      String   @unique
+  capital   String?
+  latitude  Float?
+  longitude Float?
+  sortOrder Int      @default(0)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  districts District[]
+  towns     Town[]
+
+  @@map("regions")
+}
+
+/// District, Municipality or Metropolitan Assembly area (MMDA).
+model District {
+  id        String   @id @default(cuid())
+  regionId  String
+  name      String
+  slug      String
+  type      String   @default("DISTRICT") // DISTRICT | MUNICIPALITY | METROPOLITAN
+  latitude  Float?
+  longitude Float?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  region Region @relation(fields: [regionId], references: [id], onDelete: Restrict)
+  towns  Town[]
+
+  @@unique([regionId, slug])
+  @@index([regionId])
+  @@index([name])
+  @@map("districts")
+}
+
+/// Town or city. `regionId` is denormalised from the district so
+/// "towns in region X" never needs a join through districts.
+model Town {
+  id         String   @id @default(cuid())
+  districtId String
+  regionId   String
+  name       String
+  slug       String
+  isMajor    Boolean  @default(false) // regional hub cities (Accra, Kumasi, Tamale…)
+  latitude   Float?
+  longitude  Float?
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  district             District              @relation(fields: [districtId], references: [id], onDelete: Restrict)
+  region               Region                @relation(fields: [regionId], references: [id], onDelete: Restrict)
+  communities          CommunityArea[]
+  personalProfiles     PersonalProfile[]
+  providerBases        ProviderProfile[]     @relation("ProviderBaseTown")
+  providerServiceAreas ProviderServiceArea[]
+  businessServiceAreas BusinessServiceArea[]
+  serviceAreas         ServiceServiceArea[]
+  businessLocations    Business[]            @relation("BusinessTowns")
+  jobRequests          JobRequest[]          @relation("JobRequestTowns")
+  projects             Project[]             @relation("ProjectTowns")
+  productLocations     Product[]             @relation("ProductTowns")
+  equipmentLocations   Equipment[]           @relation("EquipmentTowns")
+  orderDeliveries      Order[]               @relation("OrderDeliveryTowns")
+  portfolioItems       PortfolioItem[]       @relation("PortfolioTowns")
+
+  @@unique([districtId, slug])
+  @@index([regionId])
+  @@index([name])
+  @@map("towns")
+}
+
+/// Community / neighbourhood / area inside a town (e.g. Adoagyiri in Nsawam).
+model CommunityArea {
+  id        String   @id @default(cuid())
+  townId    String
+  name      String
+  slug      String
+  latitude  Float?
+  longitude Float?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  town        Town         @relation(fields: [townId], references: [id], onDelete: Restrict)
+  jobRequests JobRequest[] @relation("JobRequestCommunities")
+
+  @@unique([townId, slug])
+  @@index([townId])
+  @@map("community_areas")
+}
+
+// =============================================================================
+// SERVICE AREAS — where providers/businesses/services WORK (not where they
+// live). This is what later answers "which plumbers serve Nsawam?": a provider
+// based in Nsawam may serve Nsawam, Adoagyiri, Suhum and more, each as its own
+// join row. Reverse lookups are indexed on locationId.
+// =============================================================================
+
+/// Locations a provider profile works in.
+model ProviderServiceArea {
+  id         String   @id @default(cuid())
+  providerId String
+  locationId String // FK → Town
+  createdAt  DateTime @default(now())
+
+  provider ProviderProfile @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  location Town            @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  @@unique([providerId, locationId])
+  @@index([locationId])
+  @@map("provider_service_areas")
+}
+
+/// Locations a business serves.
+model BusinessServiceArea {
+  id         String   @id @default(cuid())
+  businessId String
+  locationId String // FK → Town
+  createdAt  DateTime @default(now())
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  location Town     @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, locationId])
+  @@index([locationId])
+  @@map("business_service_areas")
+}
+
+/// Locations an individual service listing covers (when it differs from the
+/// provider's own coverage).
+model ServiceServiceArea {
+  id         String   @id @default(cuid())
+  serviceId  String
+  locationId String // FK → Town
+  createdAt  DateTime @default(now())
+
+  service  Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  location Town    @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  @@unique([serviceId, locationId])
+  @@index([locationId])
+  @@map("service_service_areas")
+}
+
+// =============================================================================
+// MARKETPLACE TAXONOMY
+// =============================================================================
+
+/// Hierarchical marketplace categories (roots: Construction Services,
+/// Professional Services, Materials, Equipment — children such as Plumbing,
+/// Cement, Excavators). Data-driven; administrators manage them (no
+/// hard-coded category logic in features).
+model Category {
+  id          String    @id @default(cuid())
+  parentId    String?
+  name        String
+  slug        String    @unique
+  description String?
+  icon        String?
+  level       Int       @default(1) // 1 = root
+  sortOrder   Int       @default(0)
+  isActive    Boolean   @default(true)
+  deletedAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  parent         Category?       @relation("CategoryTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children       Category[]      @relation("CategoryTree")
+  services       Service[]
+  products       Product[]
+  equipment      Equipment[]
+  jobRequests    JobRequest[]
+  projects       Project[]
+  portfolioItems PortfolioItem[]
+
+  @@index([parentId])
+  @@index([isActive])
+  @@map("categories")
+}
+
+/// Data-driven measurement units for products (bag, piece, ton, length,
+/// square metre, cubic metre, bundle, carton, unit…). Never hard-coded in UI.
+model MeasurementUnit {
+  id        String   @id @default(cuid())
+  name      String   @unique // "Bag"
+  slug      String   @unique // "bag"
+  symbol    String? // "kg", "m²"
+  kind      String   @default("COUNT") // MASS | VOLUME | COUNT | LENGTH | AREA | OTHER
+  sortOrder Int      @default(0)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  products Product[]
+
+  @@map("measurement_units")
+}
+
+// =============================================================================
+// MARKETPLACE LISTINGS
+// =============================================================================
+
+/// A service offering (plumbing repair, building construction, architectural
+/// design…). Pricing models: FIXED, STARTING_FROM, PER_HOUR, PER_DAY,
+/// PER_UNIT, QUOTE_REQUIRED. Money is integer pesewas.
+model Service {
+  id                  String    @id @default(cuid())
+  providerId          String
+  businessId          String?
+  categoryId          String
+  name                String
+  description         String?
+  pricingModel        String    @default("QUOTE_REQUIRED")
+  startingPriceAmount Int? // integer pesewas; null for QUOTE_REQUIRED
+  currency            String    @default("GHS")
+  status              String    @default("DRAFT") // DRAFT | ACTIVE | PAUSED | SUSPENDED | DELETED
+  isAvailable         Boolean   @default(true)
+  isSeedData          Boolean   @default(false)
+  deletedAt           DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  provider       ProviderProfile      @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  business       Business?            @relation("BusinessServices", fields: [businessId], references: [id], onDelete: SetNull)
+  category       Category             @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  serviceAreas   ServiceServiceArea[]
+  jobRequests    JobRequest[]
+  portfolioItems PortfolioItem[]
+
+  @@index([categoryId, status])
+  @@index([providerId])
+  @@index([status])
+  @@index([businessId])
+  @@map("services")
+}
+
+/// A product listing (cement, blocks, iron rods, tiles…). Prices are integer
+/// pesewas; units reference the MeasurementUnit table (data-driven).
+model Product {
+  id                String    @id @default(cuid())
+  sellerId          String
+  businessId        String?
+  categoryId        String
+  name              String
+  sku               String? // stock-keeping unit, unique per seller when set
+  description       String?
+  priceAmount       Int // integer pesewas
+  currency          String    @default("GHS")
+  unitId            String? // FK → MeasurementUnit
+  stockQuantity     Int       @default(0)
+  minOrderQuantity  Int?
+  locationId        String? // FK → Town (yard/shop location)
+  deliveryAvailable Boolean   @default(false)
+  status            String    @default("DRAFT") // DRAFT | ACTIVE | OUT_OF_STOCK | SUSPENDED | DELETED
+  isSeedData        Boolean   @default(false)
+  deletedAt         DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  seller     User             @relation("ProductSeller", fields: [sellerId], references: [id], onDelete: Cascade)
+  business   Business?        @relation("BusinessProducts", fields: [businessId], references: [id], onDelete: SetNull)
+  category   Category         @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  unit       MeasurementUnit? @relation(fields: [unitId], references: [id], onDelete: SetNull)
+  location   Town?            @relation("ProductTowns", fields: [locationId], references: [id], onDelete: SetNull)
+  images     ProductImage[]
+  orderItems OrderItem[]
+
+  @@unique([sellerId, sku])
+  @@index([categoryId, status])
+  @@index([sellerId])
+  @@index([status])
+  @@index([locationId])
+  @@map("products")
+}
+
+/// Product photo (ordered).
+model ProductImage {
+  id         String   @id @default(cuid())
+  productId  String
+  storageKey String
+  alt        String?
+  sortOrder  Int      @default(0)
+  createdAt  DateTime @default(now())
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+  @@map("product_images")
+}
+
+/// Equipment listing for rental (excavators, loaders, mixers, generators…).
+/// All rates and deposits are integer pesewas.
+model Equipment {
+  id                 String    @id @default(cuid())
+  ownerId            String
+  businessId         String?
+  categoryId         String
+  name               String
+  brand              String?
+  model              String?
+  yearManufactured   Int?
+  condition          String? // NEW | EXCELLENT | GOOD | FAIR
+  dailyRateAmount    Int?
+  weeklyRateAmount   Int?
+  monthlyRateAmount  Int?
+  depositAmount      Int?
+  currency           String    @default("GHS")
+  locationId         String? // FK → Town
+  operatorAvailable  Boolean   @default(false)
+  deliveryAvailable  Boolean   @default(false)
+  description        String?
+  availabilityStatus String    @default("AVAILABLE") // AVAILABLE | RENTED_OUT | MAINTENANCE | RETIRED
+  status             String    @default("DRAFT") // DRAFT | ACTIVE | SUSPENDED | DELETED
+  isSeedData         Boolean   @default(false)
+  deletedAt          DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  owner    User             @relation("EquipmentOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  business Business?        @relation("BusinessEquipment", fields: [businessId], references: [id], onDelete: SetNull)
+  category Category         @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  location Town?            @relation("EquipmentTowns", fields: [locationId], references: [id], onDelete: SetNull)
+  images   EquipmentImage[]
+
+  @@index([categoryId])
+  @@index([ownerId])
+  @@index([availabilityStatus])
+  @@index([status])
+  @@index([locationId])
+  @@map("equipment")
+}
+
+/// Equipment photo (ordered).
+model EquipmentImage {
+  id          String   @id @default(cuid())
+  equipmentId String
+  storageKey  String
+  alt         String?
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  equipment Equipment @relation(fields: [equipmentId], references: [id], onDelete: Cascade)
+
+  @@index([equipmentId])
+  @@map("equipment_images")
+}
+
+// =============================================================================
+// JOB REQUESTS (RFQ) — the core Dwellers flow
+// =============================================================================
+// A customer describes what they need ("My kitchen sink is leaking — I need a
+// plumber in Nsawam"), optionally attaches photos/videos/documents and submits
+// it as a structured job request. No phone call is required. Providers (or the
+// future matching engine) respond with quotations.
+
+/// Statuses: DRAFT → SUBMITTED → MATCHING → RESPONDED → ACCEPTED →
+/// IN_PROGRESS → COMPLETED (or CANCELLED).
+model JobRequest {
+  id                 String    @id @default(cuid())
+  reference          String    @unique // human-friendly, e.g. "JR-8F3K2A"
+  customerId         String
+  providerId         String? // set when the request targets a specific provider
+  categoryId         String? // trade/material category, e.g. Plumbing
+  serviceId          String? // set when requesting a specific listed service
+  locationId         String? // FK → Town (where the work happens)
+  communityId        String? // FK → CommunityArea (finer granularity)
+  areaText           String? // free-text area landmark when not listed yet
+  latitude           Float?
+  longitude          Float?
+  title              String?
+  description        String
+  budgetMinAmount    Int? // integer pesewas
+  budgetMaxAmount    Int? // integer pesewas
+  currency           String    @default("GHS")
+  preferredDate      DateTime?
+  preferredTimeSlot  String? // MORNING | AFTERNOON | EVENING | FLEXIBLE
+  status             String    @default("DRAFT")
+  submittedAt        DateTime?
+  cancelledAt        DateTime?
+  cancellationReason String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  customer      User?                  @relation("JobRequestCustomer", fields: [customerId], references: [id], onDelete: Cascade)
+  provider      ProviderProfile?       @relation("JobRequestProvider", fields: [providerId], references: [id], onDelete: SetNull)
+  category      Category?              @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  service       Service?               @relation(fields: [serviceId], references: [id], onDelete: SetNull)
+  location      Town?                  @relation("JobRequestTowns", fields: [locationId], references: [id], onDelete: SetNull)
+  community     CommunityArea?         @relation("JobRequestCommunities", fields: [communityId], references: [id], onDelete: SetNull)
+  attachments   JobRequestAttachment[]
+  quotes        Quote[]
+  reviews       Review[]
+  conversations Conversation[]         @relation("ConversationJobRequest")
+  payments      Payment[]
+
+  @@index([customerId])
+  @@index([status])
+  @@index([categoryId])
+  @@index([serviceId])
+  @@index([locationId])
+  @@index([providerId])
+  @@index([createdAt])
+  @@map("job_requests")
+}
+
+/// Photo/video/document attached to a job request (storage keys only —
+/// binaries live in the storage provider).
+model JobRequestAttachment {
+  id           String   @id @default(cuid())
+  jobRequestId String
+  storageKey   String
+  originalName String?
+  mimeType     String?
+  sizeBytes    Int?
+  kind         String   @default("DOCUMENT") // PHOTO | VIDEO | DOCUMENT
+  createdAt    DateTime @default(now())
+
+  jobRequest JobRequest @relation(fields: [jobRequestId], references: [id], onDelete: Cascade)
+
+  @@index([jobRequestId])
+  @@map("job_request_attachments")
+}
+
+// =============================================================================
+// QUOTATIONS
+// =============================================================================
+// SECURITY/POLICY NOTE (enforced from Phase 5): quotation totals are ALWAYS
+// computed on the server from line items / component amounts. Totals submitted
+// by a frontend are never trusted. All amounts are integer pesewas.
+
+/// A provider's priced response to a job request.
+/// Statuses: DRAFT → SUBMITTED → VIEWED → ACCEPTED | DECLINED | EXPIRED | WITHDRAWN.
+model Quote {
+  id                    String    @id @default(cuid())
+  quoteNumber           String    @unique // e.g. "QT-2026-000123"
+  jobRequestId          String
+  providerId            String
+  customerId            String // denormalised from the job request for fast per-customer queries
+  description           String?
+  labourAmount          Int       @default(0)
+  materialAmount        Int       @default(0)
+  equipmentAmount       Int       @default(0)
+  otherChargesAmount    Int       @default(0)
+  discountAmount        Int       @default(0)
+  taxAmount             Int       @default(0)
+  totalAmount           Int       @default(0) // server-calculated
+  currency              String    @default("GHS")
+  validUntil            DateTime?
+  estimatedDurationDays Int?
+  terms                 String?
+  status                String    @default("DRAFT")
+  submittedAt           DateTime?
+  respondedAt           DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  jobRequest    JobRequest      @relation(fields: [jobRequestId], references: [id], onDelete: Cascade)
+  provider      ProviderProfile @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  customer      User            @relation("QuoteCustomer", fields: [customerId], references: [id], onDelete: Cascade)
+  items         QuoteItem[]
+  projects      Project[]
+  conversations Conversation[]  @relation("ConversationQuote")
+
+  @@index([jobRequestId])
+  @@index([providerId])
+  @@index([customerId])
+  @@index([status])
+  @@map("quotes")
+}
+
+/// Itemised quotation line (Labour — GH₵1,000 / Materials — GH₵500 / …).
+/// `quantityMilli` holds quantity × 1000 (2.5 bags → 2500); the SQLite
+/// connector has no Decimal type. Line totals are integer pesewas, computed
+/// server-side with the finance helpers (round half up, documented policy).
+model QuoteItem {
+  id              String   @id @default(cuid())
+  quoteId         String
+  kind            String   @default("OTHER") // LABOUR | MATERIAL | EQUIPMENT | TRANSPORT | OTHER
+  name            String
+  description     String?
+  quantityMilli   Int      @default(1000) // qty × 1000
+  unitLabel       String? // snapshot, e.g. "bag", "day"
+  unitPriceAmount Int // integer pesewas per unit
+  lineTotalAmount Int // integer pesewas
+  sortOrder       Int      @default(0)
+  createdAt       DateTime @default(now())
+
+  quote Quote @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+
+  @@index([quoteId])
+  @@map("quote_items")
+}
+
+// =============================================================================
+// PROJECTS
+// =============================================================================
+
+/// An engagement between a customer and a provider (often born from an
+/// accepted quote). Statuses: DRAFT → OPEN → QUOTATION → ACCEPTED → ACTIVE →
+/// ON_HOLD → COMPLETED (or CANCELLED). Full project-management UI arrives in
+/// a later phase — this is the database foundation.
+model Project {
+  id              String    @id @default(cuid())
+  title           String
+  description     String?
+  customerId      String
+  providerId      String?
+  businessId      String?
+  quoteId         String? // set when the project originates from an accepted quote
+  categoryId      String?
+  locationId      String? // FK → Town
+  budgetAmount    Int? // integer pesewas
+  currency        String    @default("GHS")
+  startDate       DateTime?
+  expectedEndDate DateTime?
+  actualEndDate   DateTime?
+  status          String    @default("DRAFT")
+  progress        Int       @default(0) // 0–100
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  deletedAt       DateTime?
+
+  customer      User?              @relation("ProjectCustomer", fields: [customerId], references: [id], onDelete: Cascade)
+  provider      ProviderProfile?   @relation("ProviderProjects", fields: [providerId], references: [id], onDelete: SetNull)
+  business      Business?          @relation("BusinessProjects", fields: [businessId], references: [id], onDelete: SetNull)
+  quote         Quote?             @relation(fields: [quoteId], references: [id], onDelete: SetNull)
+  category      Category?          @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  location      Town?              @relation("ProjectTowns", fields: [locationId], references: [id], onDelete: SetNull)
+  tasks         ProjectTask[]
+  milestones    ProjectMilestone[]
+  reviews       Review[]
+  conversations Conversation[]     @relation("ConversationProject")
+  payments      Payment[]
+
+  @@index([customerId])
+  @@index([providerId])
+  @@index([status])
+  @@index([businessId])
+  @@map("projects")
+}
+
+/// Work item inside a project.
+model ProjectTask {
+  id          String    @id @default(cuid())
+  projectId   String
+  name        String
+  description String?
+  assigneeId  String? // FK → User
+  priority    String    @default("MEDIUM") // LOW | MEDIUM | HIGH | URGENT
+  status      String    @default("TODO") // TODO | IN_PROGRESS | BLOCKED | DONE | CANCELLED
+  startDate   DateTime?
+  dueDate     DateTime?
+  completedAt DateTime?
+  progress    Int       @default(0) // 0–100
+  sortOrder   Int       @default(0)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  project  Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  assignee User?   @relation("TaskAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+
+  @@index([projectId])
+  @@index([assigneeId])
+  @@index([status])
+  @@map("project_tasks")
+}
+
+/// A milestone (phase gate) within a project, optionally tied to a payment.
+model ProjectMilestone {
+  id               String    @id @default(cuid())
+  projectId        String
+  name             String
+  description      String?
+  dueDate          DateTime?
+  completedAt      DateTime?
+  status           String    @default("PENDING") // PENDING | IN_PROGRESS | COMPLETED | CANCELLED
+  amount           Int? // milestone value in pesewas (informational)
+  paymentReference String? // links to a Payment when milestone billing is live
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@map("project_milestones")
+}
+
+// =============================================================================
+// MESSAGING (database foundation — realtime transport is a later phase)
+// =============================================================================
+
+/// A conversation between users. May be linked to a job request, quote,
+/// project or order so context travels with the discussion.
+model Conversation {
+  id                 String    @id @default(cuid())
+  type               String    @default("DIRECT") // DIRECT | JOB | QUOTE | PROJECT | ORDER | SUPPORT
+  title              String?
+  createdById        String
+  jobRequestId       String?
+  quoteId            String?
+  projectId          String?
+  orderId            String?
+  lastMessageAt      DateTime?
+  lastMessagePreview String?
+  isArchived         Boolean   @default(false)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  createdBy    User                      @relation("ConversationCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  jobRequest   JobRequest?               @relation("ConversationJobRequest", fields: [jobRequestId], references: [id], onDelete: SetNull)
+  quote        Quote?                    @relation("ConversationQuote", fields: [quoteId], references: [id], onDelete: SetNull)
+  project      Project?                  @relation("ConversationProject", fields: [projectId], references: [id], onDelete: SetNull)
+  order        Order?                    @relation("ConversationOrder", fields: [orderId], references: [id], onDelete: SetNull)
+  participants ConversationParticipant[]
+  messages     Message[]
+
+  @@index([jobRequestId])
+  @@index([quoteId])
+  @@index([projectId])
+  @@index([orderId])
+  @@index([lastMessageAt])
+  @@map("conversations")
+}
+
+/// Membership of a user in a conversation (with read cursor).
+model ConversationParticipant {
+  id             String    @id @default(cuid())
+  conversationId String
+  userId         String
+  role           String    @default("PARTICIPANT") // INITIATOR | PARTICIPANT
+  lastReadAt     DateTime?
+  joinedAt       DateTime  @default(now())
+  leftAt         DateTime?
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user         User         @relation("ConversationParticipantUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId, userId])
+  @@index([userId])
+  @@map("conversation_participants")
+}
+
+/// A message inside a conversation. Read state is tracked per user via
+/// MessageRead receipts; senders never lose their message history (soft delete).
+model Message {
+  id             String    @id @default(cuid())
+  conversationId String
+  senderId       String
+  body           String
+  editedAt       DateTime?
+  deletedAt      DateTime? // soft delete (unsend) — history stays auditable
+  createdAt      DateTime  @default(now())
+
+  conversation Conversation        @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender       User                @relation("MessageSender", fields: [senderId], references: [id], onDelete: Restrict)
+  reads        MessageRead[]
+  attachments  MessageAttachment[]
+
+  @@index([conversationId, createdAt])
+  @@index([senderId])
+  @@map("messages")
+}
+
+/// Per-user read receipt for a message.
+model MessageRead {
+  id        String   @id @default(cuid())
+  messageId String
+  userId    String
+  readAt    DateTime @default(now())
+
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user    User    @relation("MessageReader", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId])
+  @@index([userId])
+  @@map("message_reads")
+}
+
+/// Attachment reference on a message (binaries live in storage).
+model MessageAttachment {
+  id           String   @id @default(cuid())
+  messageId    String
+  storageKey   String
+  originalName String?
+  mimeType     String?
+  sizeBytes    Int?
+  createdAt    DateTime @default(now())
+
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([messageId])
+  @@map("message_attachments")
+}
+
+// =============================================================================
+// NOTIFICATIONS
+// =============================================================================
+
+/// In-app notification (email/SMS/WhatsApp channels activate in later phases
+/// — the channel column and send bookkeeping already exist).
+model Notification {
+  id          String    @id @default(cuid())
+  recipientId String
+  type        String // e.g. JOB_NEW | QUOTE_RECEIVED | QUOTE_ACCEPTED | ORDER_UPDATE
+  channel     String    @default("IN_APP") // IN_APP | EMAIL | SMS | WHATSAPP
+  title       String
+  body        String?
+  entityType  String?
+  entityId    String?
+  readAt      DateTime?
+  sentAt      DateTime? // set when an out-of-app channel dispatches
+  createdAt   DateTime  @default(now())
+
+  recipient User @relation("NotificationRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+
+  @@index([recipientId, readAt])
+  @@index([recipientId, createdAt])
+  @@index([type])
+  @@map("notifications")
+}
+
+// =============================================================================
+// TRUST — REVIEWS & VERIFICATION
+// =============================================================================
+
+/// A review of a provider or business. Verified reviews originate from a
+/// completed engagement (job/project/order) — `isVerifiedPurchase` records
+/// that link, and moderation states gate publication.
+model Review {
+  id                    String    @id @default(cuid())
+  reviewerId            String
+  providerId            String?
+  businessId            String?
+  jobRequestId          String?
+  projectId             String?
+  orderId               String?
+  ratingOverall         Int // 1–5
+  ratingQuality         Int?
+  ratingProfessionalism Int?
+  ratingCommunication   Int?
+  ratingTimeliness      Int?
+  ratingValue           Int?
+  comment               String?
+  status                String    @default("PENDING") // PENDING | PUBLISHED | REJECTED | REMOVED
+  isVerifiedEngagement  Boolean   @default(false) // true when linked to a completed job/order/project
+  deletedAt             DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  reviewer   User?            @relation("ReviewAuthor", fields: [reviewerId], references: [id], onDelete: Cascade)
+  provider   ProviderProfile? @relation("ProviderReviews", fields: [providerId], references: [id], onDelete: Cascade)
+  business   Business?        @relation("BusinessReviews", fields: [businessId], references: [id], onDelete: Cascade)
+  jobRequest JobRequest?      @relation(fields: [jobRequestId], references: [id], onDelete: SetNull)
+  project    Project?         @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  @@index([providerId, status])
+  @@index([businessId, status])
+  @@index([reviewerId])
+  @@index([status])
+  @@map("reviews")
+}
+
+/// A verification submission (identity, business registration, professional
+/// certificate…) reviewed by platform staff. `documentRefs` is a JSON array
+/// of [{ key, name, mimeType }] storage references — never secrets.
+model Verification {
+  id           String    @id @default(cuid())
+  userId       String // submitter
+  providerId   String?
+  businessId   String?
+  type         String // IDENTITY | BUSINESS_REGISTRATION | PROFESSIONAL_CERTIFICATE | ADDRESS | TAX | OTHER
+  documentRefs String? // JSON array of storage references
+  status       String    @default("PENDING") // PENDING | UNDER_REVIEW | APPROVED | REJECTED | EXPIRED
+  reviewerId   String? // staff member who decided
+  notes        String?
+  submittedAt  DateTime  @default(now())
+  reviewedAt   DateTime?
+  approvedAt   DateTime?
+  expiresAt    DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  user     User?            @relation("VerificationSubmitter", fields: [userId], references: [id], onDelete: Cascade)
+  provider ProviderProfile? @relation("ProviderVerifications", fields: [providerId], references: [id], onDelete: Cascade)
+  business Business?        @relation("BusinessVerifications", fields: [businessId], references: [id], onDelete: Cascade)
+  reviewer User?            @relation("VerificationReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
+
+  @@index([status])
+  @@index([userId])
+  @@index([providerId])
+  @@index([businessId])
+  @@index([reviewerId])
+  @@map("verifications")
+}
+
+// =============================================================================
+// PORTFOLIO
+// =============================================================================
+
+/// A completed piece of work showcased by a provider or business.
+model PortfolioItem {
+  id               String    @id @default(cuid())
+  providerId       String?
+  businessId       String?
+  title            String
+  description      String?
+  categoryId       String?
+  locationId       String? // FK → Town where the work happened
+  completedAt      DateTime?
+  videoKeys        String? // JSON array of storage keys
+  servicesProvided String? // JSON array of [{ serviceId, label }]
+  isFeatured       Boolean   @default(false)
+  deletedAt        DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  provider  ProviderProfile? @relation("ProviderPortfolio", fields: [providerId], references: [id], onDelete: Cascade)
+  business  Business?        @relation("BusinessPortfolio", fields: [businessId], references: [id], onDelete: Cascade)
+  category  Category?        @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  location  Town?            @relation("PortfolioTowns", fields: [locationId], references: [id], onDelete: SetNull)
+  images    PortfolioImage[]
+  service   Service?         @relation(fields: [serviceId], references: [id], onDelete: SetNull)
+  serviceId String?
+
+  @@index([providerId])
+  @@index([businessId])
+  @@map("portfolio_items")
+}
+
+/// Portfolio photo (ordered).
+model PortfolioImage {
+  id              String   @id @default(cuid())
+  portfolioItemId String
+  storageKey      String
+  alt             String?
+  caption         String?
+  sortOrder       Int      @default(0)
+  createdAt       DateTime @default(now())
+
+  portfolioItem PortfolioItem @relation(fields: [portfolioItemId], references: [id], onDelete: Cascade)
+
+  @@index([portfolioItemId])
+  @@map("portfolio_images")
+}
+
+// =============================================================================
+// FAVORITES (saved items)
+// =============================================================================
+
+/// Reusable saved-items system: customers can save providers, services,
+/// products, equipment and businesses. `targetType` discriminates the target;
+/// referential integrity is validated in the service layer (polymorphic).
+model Favorite {
+  id         String   @id @default(cuid())
+  userId     String
+  targetType String // PROVIDER | SERVICE | PRODUCT | EQUIPMENT | BUSINESS
+  targetId   String
+  createdAt  DateTime @default(now())
+
+  user User @relation("FavoriteOwner", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, targetType, targetId])
+  @@index([targetType, targetId])
+  @@map("favorites")
+}
+
+// =============================================================================
+// COMMERCE — ORDERS & PAYMENTS
+// =============================================================================
+
+/// A purchase order for products. Totals are integer pesewas. Order items
+/// snapshot the product name and the HISTORICAL unit price at purchase time —
+/// historical totals are never recomputed from today's catalogue price.
+model Order {
+  id                  String    @id @default(cuid())
+  orderNumber         String    @unique // e.g. "DW-2026-000456"
+  customerId          String
+  sellerId            String
+  sellerBusinessId    String?
+  subtotalAmount      Int // integer pesewas
+  deliveryFeeAmount   Int       @default(0)
+  discountAmount      Int       @default(0)
+  totalAmount         Int // server-calculated
+  currency            String    @default("GHS")
+  paymentStatus       String    @default("UNPAID") // UNPAID | PENDING | PAID | PARTIALLY_REFUNDED | REFUNDED | FAILED
+  status              String    @default("PENDING") // PENDING | CONFIRMED | PROCESSING | SHIPPED | DELIVERED | COMPLETED | CANCELLED
+  deliveryAddressLine String?
+  deliveryLocationId  String? // FK → Town
+  deliveryPhone       String?
+  deliveryNotes       String?
+  placedAt            DateTime  @default(now())
+  confirmedAt         DateTime?
+  completedAt         DateTime?
+  cancelledAt         DateTime?
+  cancellationReason  String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  customer         User           @relation("OrderCustomer", fields: [customerId], references: [id], onDelete: Restrict)
+  seller           User           @relation("OrderSeller", fields: [sellerId], references: [id], onDelete: Restrict)
+  sellerBusiness   Business?      @relation("OrderSellerBusiness", fields: [sellerBusinessId], references: [id], onDelete: SetNull)
+  deliveryLocation Town?          @relation("OrderDeliveryTowns", fields: [deliveryLocationId], references: [id], onDelete: SetNull)
+  items            OrderItem[]
+  payments         Payment[]
+  conversations    Conversation[] @relation("ConversationOrder")
+
+  @@index([customerId])
+  @@index([sellerId])
+  @@index([status])
+  @@index([paymentStatus])
+  @@map("orders")
+}
+
+/// A line on an order. `productName`, `sku` and `unitPriceAmount` are
+/// SNAPSHOTS taken at purchase time.
+model OrderItem {
+  id              String   @id @default(cuid())
+  orderId         String
+  productId       String? // soft-deleted products keep their historical orders
+  productName     String // snapshot
+  sku             String? // snapshot
+  quantityMilli   Int      @default(1000) // qty × 1000 (SQLite has no Decimal)
+  unitLabel       String? // snapshot, e.g. "bag"
+  unitPriceAmount Int // historical unit price (pesewas) at purchase time
+  lineTotalAmount Int // quantityMilli × unitPrice / 1000, rounded per finance policy
+  createdAt       DateTime @default(now())
+
+  order   Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  @@index([orderId])
+  @@index([productId])
+  @@map("order_items")
+}
+
+/// Gateway-agnostic payment record (Paystack, mobile money, bank transfer,
+/// cash…). Amounts are integer pesewas. `metadata` never carries payment
+/// credentials. Commissions/splits/refunds (later phase) MUST define explicit
+/// remainder/rounding rules using src/lib/finance.ts helpers.
+model Payment {
+  id                    String    @id @default(cuid())
+  transactionRef        String    @unique // platform reference, e.g. "PAY-…"
+  userId                String // payer
+  orderId               String?
+  jobId                 String? // project/job payments (quote acceptance flow)
+  projectId             String?
+  amount                Int // integer pesewas
+  currency              String    @default("GHS")
+  provider              String // PAYSTACK | HUBTEL | MTN_MOMO | TELECEL_CASH | AT_MONEY | BANK_TRANSFER | CASH | OTHER
+  providerTransactionId String?
+  method                String? // MOBILE_MONEY | CARD | BANK_TRANSFER | CASH
+  status                String    @default("INITIATED") // INITIATED | PENDING | PROCESSING | SUCCEEDED | FAILED | CANCELLED | REFUNDED | PARTIALLY_REFUNDED
+  paidAt                DateTime?
+  failureReason         String?
+  metadata              String? // JSON — safe, redacted
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  user    User?       @relation("PaymentPayer", fields: [userId], references: [id], onDelete: Restrict)
+  order   Order?      @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  job     JobRequest? @relation(fields: [jobId], references: [id], onDelete: SetNull)
+  project Project?    @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([orderId])
+  @@index([status])
+  @@index([provider])
+  @@map("payments")
+}
+
+// =============================================================================
+// AUDIT TRAIL
+// =============================================================================
+
+/// Immutable, append-only trail of security- and business-relevant events
+/// (log/audit split: logger = operational telemetry, audit = who did what,
+/// queryable in DB). Written exclusively through src/lib/audit.ts — never
+/// directly. No FK to User on purpose: the trail must survive account
+/// deletion and keep acting as an independent record.
 model AuditLog {
   id         String   @id @default(cuid())
-  actorId    String?  // null = system action
+  actorId    String? // null = system action
   actorRole  String?
-  action     String   // one of AUDIT_ACTIONS in src/lib/audit.ts
+  action     String // one of AUDIT_ACTIONS in src/lib/audit.ts
   entityType String?
   entityId   String?
-  metadata   String?  // JSON string (redacted — no secrets)
+  metadata   String? // JSON string (redacted — no secrets)
   ip         String?
   userAgent  String?
   createdAt  DateTime @default(now())
