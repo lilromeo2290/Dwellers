@@ -144,3 +144,26 @@ Stage Summary:
 - PHASE 3 COMPLETE: real authentication live; 6 registration journeys; server-side role assignment + live status enforcement; 7 role dashboards; 227 total checks green (48+106+73); clean-database rebuild proven; browser-verified desktop+mobile.
 - Deliberate deferrals: session revocation after password change (JWT until expiry), password reset (needs delivery channel), BusinessMember granularity, community-level location FK.
 - Project now at PHASE 4 gate (Find / Nationwide Discovery). NOT started; awaiting project owner approval.
+
+---
+Task ID: 8
+Agent: main (Super Z)
+Task: Deliver Phase 3 Authentication & Dashboards Report as a formal PDF
+
+Work Log:
+- Read worklog and found the inherited summary stale: Task 7 shows PHASE 3 ALREADY COMPLETE (commits 6b354a0..69161cf, 73/73 checks, pushed). Interpreted "give me a report" as the Phase 3 completion report, per the established series (Tasks 3 and 5).
+- Repo hygiene: 149 tracked files showed mode-only diffs (100644->100755, 0 content change) from the environment rebuild; restored to recorded modes, tree clean. Confirmed project HEAD 69161cf pushed; one local worklog commit ahead.
+- Re-ran the full battery for fresh numbers: verify 48/48, verify:phase2 106/106, lint 0, tsc 0. verify:phase3 initially failed: dev database empty (reseeded, idempotent) then live HTTP 401s - root cause AUTH_SECRET missing from the rebuilt untracked .env (dev-optional env validation). Generated strong secret, restarted server: 73/73 green. Recorded as an operational finding in the report (chapter 9).
+- Read pdf skill completely (SKILL.md, briefs/report.md, configs/fonts.md, typesetting: cover/palette/overflow/pagination/typography/fill-engine/cover-backgrounds/charts) and studied the proven Task 5 scripts before writing code.
+- Regenerated cascade palette (seed 7, minimal) for the Phase 3 title - identical gold/olive family, series-consistent.
+- Cover: adapted the proven Template 01 HUD (scripts/phase3-report-cover.html); poster_validate caught a 27px summary/meta overlap, shortened the summary; cover_validate PASS; rendered via html2poster.js --width 794px.
+- Body: phase3_report_content.py (11 chapters, ASCII-only) + phase3_report_body.py (TocDocTemplate + multiBuild, chapter-only TOC, 7 palette tables, 3 callout rows, zone page numbering TOC=i/body=1..N); 12 body pages.
+- Fixes during build: CH6 had a stray CJK word (removed); bullet glyph font switched from default Helvetica to FreeSerif (Helvetica spans eliminated from the whole PDF); last page was quote-only (~8% fill) - added substantive 11.3 subsection, last page now passes fill checks.
+- Preflight on merged 13-page PDF: code.sanitize x3, meta.brand, font.check 0 issues, toc.check pass, pages.clean 0 blanks, pdf_qa WARN-only (6 table-centering warnings = the accepted mirror-symmetric callout-row false-positive pattern from Tasks 3/5). Visual QA: cover, TOC, executive summary, notifications+evidence page, last page all render correctly.
+- Committed report artifacts and pushed to GitHub; working tree clean.
+
+Stage Summary:
+- Delivered /home/z/my-project/download/Dwellers_Phase3_Authentication_Dashboards_Report.pdf (13 pages, 172 KB) + cover source HTML and build scripts under scripts/.
+- Report: 11 chapters - executive summary, scope/seam, auth core, registration, authorization/guards, dashboards, notifications/audit, verification evidence, operational findings (AUTH_SECRET incident), deferrals, phase ledger + Phase 4 gate.
+- Fresh battery re-verified during this task: 48 + 106 + 73 checks green, lint 0, tsc 0; environment restored (seed + AUTH_SECRET).
+- Project remains at the PHASE 4 gate (Find / Nationwide Discovery) awaiting project owner approval; no project source code touched.
