@@ -29,7 +29,7 @@ The schema is written PostgreSQL-ready — see §14 for the migration procedure.
 
 ---
 
-## 2. Entity map (41 models)
+## 2. Entity map (42 models)
 
 ```
 IDENTITY      User · PersonalProfile · AuditLog (no FK, append-only)
@@ -48,6 +48,7 @@ TRUST         Notification · Review · Verification
 PORTFOLIO     PortfolioItem (+ PortfolioImage)
 FAVORITES     Favorite (polymorphic saved items)
 COMMERCE      Order · OrderItem (price snapshots) · Payment
+ANALYTICS     DiscoveryEvent (Phase 4 — privacy-safe, aggregate-only)
 ```
 
 ---
@@ -341,7 +342,6 @@ changes.
 ---
 
 ## 13. Orders & payments
-
 **Order** (unique `orderNumber` `DW-…`) carries customer, seller (and optional
 seller business), `subtotalAmount` / `deliveryFeeAmount` / `discountAmount` /
 `totalAmount` (integer pesewas), `paymentStatus`
@@ -439,7 +439,20 @@ Seeds:
   `VERIFIED`; fake providers can never appear as vetted businesses.
   Demo account password: `Demo#Passw0rd` (documented in the seed output only).
 
-## 17. PostgreSQL readiness
+## 17. Discovery analytics (Phase 4)
+
+**DiscoveryEvent** (`discovery_events`) is the Phase 4 event log for the Find
+experience. It is deliberately NOT a security trail: high-volume public
+search would pollute the append-only `AuditLog`, and analytics must never
+carry personal identifiers. Rows hold the event `eventType` (e.g.
+`provider_search`, `provider_profile_view`, `request_service_clicked`),
+resolved taxonomy/location IDs (`categoryId`, `townId`, …), the click target
+`providerId`, and coarse outcome counters (`resultCount`, `sort`, `page`).
+There are NO columns for user IDs, IPs, user agents or free-text queries —
+enforced by a suite check. Aggregation over this table powers Phase 5+
+recommendations and search-quality tuning. See DISCOVERY.md §12.
+
+## 18. PostgreSQL readiness
 
 The schema deliberately avoids SQLite-only features: no native enums (string
 statuses validated at the boundary), no `Json` columns (JSON documents in

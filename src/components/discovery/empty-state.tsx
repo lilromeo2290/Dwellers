@@ -26,8 +26,7 @@ export function EmptyResults({
         <SearchX className="h-6 w-6 text-muted-foreground" aria-hidden="true" />
       </div>
       <h2 className="mt-4 text-lg font-semibold text-foreground">
-        No {whatLabel.toLowerCase()} are currently listed as serving{' '}
-        {whereLabel ?? 'this area'}
+        No {whatLabel.toLowerCase()} found in {whereLabel ?? 'this area'} yet
       </h2>
       <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
         Providers join Dwellers every week. You can widen the area, check

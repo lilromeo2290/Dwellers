@@ -623,7 +623,12 @@ await check('business-affiliated profile names the business and type', async () 
 
 await section('9. Ownership & eligibility boundaries')
 await check('provider profile update rejects a non-owner (IDOR re-check)', async () => {
-  const attacker = { userId: b1User.id, email: b1User.email, role: 'CONTRACTOR', status: 'ACTIVE' }
+  const attacker = {
+    userId: b1User.id,
+    email: b1User.email,
+    role: 'CONTRACTOR' as const,
+    status: 'ACTIVE',
+  }
   let threw = false
   try {
     await marketplace.updateProviderProfile(attacker, p1.provider.id, { headline: 'hacked' })

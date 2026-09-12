@@ -38,11 +38,15 @@ export function ProfileActions({ providerId, providerName }: { providerId: strin
   const [pending, setPending] = useState<'request' | 'message' | null>(null)
 
   // Preserve the intended action across the auth round-trip (PART 22).
-  const currentPath = typeof window === 'undefined' ? '' : window.location.pathname
-  const withIntent = (intent: string) =>
-    `/auth/sign-in?callbackUrl=${encodeURIComponent(`${currentPath}?intent=${intent}`)}`
+  // The path is read at CLICK time, not render time, so a click that lands
+  // during a client-side page transition still records the right destination.
+  const withIntent = (intent: string) => {
+    const path = typeof window === 'undefined' ? '' : window.location.pathname
+    return `/auth/sign-in?callbackUrl=${encodeURIComponent(`${path}?intent=${intent}`)}`
+  }
 
   const signedIn = status === 'authenticated' && Boolean(session?.user?.id)
+  const showAnonymousNotice = status === 'unauthenticated'
 
   const onRequestService = () => {
     trackEvent('request_service_clicked', providerId)
@@ -95,7 +99,7 @@ export function ProfileActions({ providerId, providerName }: { providerId: strin
           Message provider
         </Button>
       </div>
-      {!signedIn && (
+      {showAnonymousNotice && (
         <p className="flex items-center justify-center gap-1.5 text-xs text-muted-foreground">
           <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
           You&apos;ll be asked to{' '}

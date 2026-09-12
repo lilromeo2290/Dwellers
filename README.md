@@ -34,11 +34,13 @@ The long-term product journey: **Find → Compare → Connect → Quote → Buy 
 
 ```
 ├── prisma/
-│   ├── schema.prisma            # Full domain model (41 models — see DATABASE.md)
+│   ├── schema.prisma            # Full domain model (42 models — see DATABASE.md)
 │   └── migrations/              # Reproducible migrations (never manual pushes)
 ├── scripts/
 │   ├── verify-foundation.ts     # `bun run verify` — Phase 1 core checks
 │   ├── verify-phase2.ts         # `bun run verify:phase2` — domain + security suite
+│   ├── verify-phase3.ts         # `bun run verify:phase3` — auth + onboarding suite
+│   ├── verify-phase4.ts         # `bun run verify:phase4` — discovery suite
 │   └── seed.ts                  # `bun run db:seed` — Ghana locations, taxonomy,
 │                                #   clearly-marked demo accounts/listings
 ├── src/
@@ -48,7 +50,8 @@ The long-term product journey: **Find → Compare → Connect → Quote → Buy 
 │   │   │   ├── health/          #   /api/health — liveness + DB check
 │   │   │   ├── users/           #   /api/users(/me) — account self-service
 │   │   │   ├── businesses/      #   /api/businesses — company profiles
-│   │   │   ├── providers/       #   /api/providers — discovery search
+│   │   │   ├── providers/       #   /api/providers — provider profiles (Phase 2 API)
+│   │   │   ├── discovery/       #   /api/discovery — THE search contract (Phase 4)
 │   │   │   ├── categories/      #   /api/categories — taxonomy
 │   │   │   ├── locations/       #   /api/locations — Region→District→Town→Community
 │   │   │   ├── services/        #   /api/services — service listings
@@ -132,6 +135,10 @@ bun run verify:phase2    # 106 checks — domain entities, ownership/IDOR,
 bun run verify:phase3    # 73 checks — registration (6 paths), login/logout,
                          # sessions, passwords, account status, ownership,
                          # notifications, audit, live HTTP auth flows
+bun run verify:phase4    # 56 checks — discovery engine, critical Nsawam
+                         # acceptance (4 tests), ranking, filters, sorting,
+                         # pagination, nearby fallback, privacy, analytics,
+                         # SEO landings, live HTTP discovery contract
 ```
 
 ### Lint & types
@@ -220,6 +227,9 @@ Never: `update`, `changes`, `test`, `stuff`.
 
 ## Where to read next
 
+- **[DISCOVERY.md](./DISCOVERY.md)** — the Find experience: search criteria,
+  service/location matching, the ranking weights, nearby fallback,
+  public/authenticated boundaries, SEO routes and the API contract.
 - **[DATABASE.md](./DATABASE.md)** — the data model: entities, relationships,
   Ghana location hierarchy, service areas, job-request/quote/project/messaging
   architecture, authorization model, migrations, seed and PostgreSQL readiness.

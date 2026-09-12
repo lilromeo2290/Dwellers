@@ -15,7 +15,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet'
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet'
 import { cn } from '@/lib/utils'
 
 export const SORT_OPTIONS = [
@@ -290,6 +290,7 @@ export function FiltersPanel() {
           <SheetContent side="bottom" className="max-h-[85vh] overflow-y-auto rounded-t-2xl p-5">
             <SheetHeader className="sr-only">
               <SheetTitle>Search filters</SheetTitle>
+              <SheetDescription>Refine the provider results server-side.</SheetDescription>
             </SheetHeader>
             <FilterFields onDone={() => setOpen(false)} />
           </SheetContent>

@@ -268,6 +268,24 @@ from where a provider lives (see DATABASE.md §6.2): a provider based in
 Nsawam can serve Nsawam, Adoagyiri, Suhum and more, each as its own indexed
 join row — this is what later answers "which plumbers serve Nsawam?".
 
+### Discovery architecture (Phase 4)
+
+The Find experience is ONE engine behind MANY doors — homepage hero, `/find`,
+`/find/[category]`, `/find/[category]/[location]`, the provider directory and
+`GET /api/discovery/providers` all call `discoverProviders()` in
+`src/modules/discovery/provider-discovery.ts`; no surface implements search
+logic itself. The pipeline is: strict Zod criteria → resolve IDs (taxonomy
+subtree, location tier) → hard filters (active account, offered service,
+covering service area, server-side filters) → capped candidate fetch →
+scoring via the central weight matrix (`ranking.ts`: service 30 / location 25
+/ availability 15 / rating 10 / response 10 / experience 5 / verification 5,
+neutral-fill for missing data) → sort → server-side pagination → a
+privacy-safe envelope (no emails, phones or raw coordinates; distances are
+derived Haversine bands). Zero exact results trigger a clearly labeled
+nearby tier (same filters, towns within 50 km) — the customer's selection is
+never silently replaced. Full contract, SEO routes and upgrade path:
+**DISCOVERY.md**.
+
 ### Client IP & trusted proxies
 
 Forwarded headers are trusted ONLY when `TRUST_PROXY_ENABLED=true` (a
@@ -313,8 +331,8 @@ control for private objects is enforced by the API routes that serve them.
 | **Phase 1** | Foundation, architecture & standards | **Complete** (gate: PASS WITH CONDITIONS) |
 | **Phase 2** | Database schema & backend foundation (full domain model, first API surface, remediation) | **Complete** |
 | Phase 3 | Authentication, registration & role-based dashboards | ✅ Delivered (see AUTHENTICATION.md) |
-| Phase 4+ | Marketplace UI, commerce, communication, trust features | Indicative |
+| Phase 4 | Find / Nationwide Discovery (search engine, ranking, SEO landings, provider profiles) | ✅ Delivered (see DISCOVERY.md) |
+| Phase 5+ | Job requests, quotations, commerce, communication, trust features | Indicative |
 
-Phase sequencing beyond Phase 2 is indicative and confirmed per product
-priorities. **The project does not proceed to Phase 4 without explicit
-instruction.**
+Phase sequencing is confirmed per product priorities. **The project does not
+proceed to Phase 5 without explicit instruction.**
