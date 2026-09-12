@@ -1,0 +1,1735 @@
+     1→You are continuing development of the existing DWELLERS project.
+     2→
+     3→PRODUCT:
+     4→DWELLERS
+     5→Find. Buy. Build.
+     6→
+     7→DWELLERS is a nationwide Ghanaian digital marketplace connecting customers with artisans, contractors, construction companies, material suppliers, equipment providers and construction service professionals.
+     8→
+     9→IMPORTANT:
+    10→
+    11→This is PHASE 2.
+    12→
+    13→Do NOT rebuild the project from scratch.
+    14→
+    15→Do NOT replace the existing technology stack.
+    16→
+    17→Do NOT redesign the entire website.
+    18→
+    19→Do NOT jump ahead and build the complete marketplace.
+    20→
+    21→Do NOT implement Phase 3, 4, 5, 6 or later features unless they are strictly required as backend foundations for this phase.
+    22→
+    23→Preserve all working Phase 1 functionality.
+    24→
+    25→The Phase 1 independent engineering gate review has been completed.
+    26→
+    27→The result was:
+    28→
+    29→109/109 independent adversarial checks passed
+    30→48/48 foundation verification checks passed
+    31→64/64 RBAC escalation pairs passed
+    32→ESLint clean
+    33→Desktop browser test passed
+    34→Mobile browser test passed
+    35→No critical issues
+    36→
+    37→The gate verdict was:
+    38→
+    39→PASS WITH CONDITIONS
+    40→
+    41→Dwellers was explicitly approved to proceed to Phase 2.
+    42→
+    43→Your responsibility in Phase 2 is to:
+    44→
+    45→1. Resolve the Phase 1 gate conditions.
+    46→2. Establish the real Dwellers database architecture.
+    47→3. Establish the backend/domain foundation.
+    48→4. Prepare the system for the future nationwide marketplace.
+    49→5. Prepare the architecture for location-based artisan/job requests.
+    50→6. Prepare the architecture for messaging and quotations.
+    51→7. Maintain security and server-side authorization.
+    52→8. Test everything before declaring Phase 2 complete.
+    53→
+    54→==================================================
+    55→PART 1 — PHASE 1 REMEDIATION
+    56→==================================================
+    57→
+    58→Before building the new database/domain features, resolve the issues identified in the Phase 1 Gate Review.
+    59→
+    60→Do these in order.
+    61→
+    62→--------------------------------------------------
+    63→1. ENFORCE TYPESCRIPT TYPE SAFETY
+    64→--------------------------------------------------
+    65→
+    66→The previous build configuration used:
+    67→
+    68→typescript.ignoreBuildErrors = true
+    69→
+    70→This MUST be corrected.
+    71→
+    72→Inspect the current TypeScript errors.
+    73→
+    74→Fix the approximately 16 reported errors, including:
+    75→
+    76→- Missing Role type import in src/lib/auth/permissions.ts
+    77→- Missing LogEventName import in src/lib/audit.ts
+    78→- Zod v4 refine/signature issues
+    79→- Readonly assignment issues
+    80→- Generic variance issues
+    81→- Other legitimate type errors
+    82→
+    83→Inspect tsconfig.
+    84→
+    85→Exclude development-only/scaffold directories where appropriate, including:
+    86→
+    87→- examples/
+    88→- skills/
+    89→- download/
+    90→
+    91→Do NOT hide legitimate application errors simply by excluding files.
+    92→
+    93→After fixing the errors:
+    94→
+    95→Set:
+    96→
+    97→ignoreBuildErrors = false
+    98→
+    99→Run:
+   100→
+   101→tsc --noEmit
+   102→
+   103→The command MUST pass.
+   104→
+   105→Do not proceed until the actual application code passes type checking.
+   106→
+   107→--------------------------------------------------
+   108→2. FIX TRACKED .ENV FILE
+   109→--------------------------------------------------
+   110→
+   111→The Phase 1 review found a tracked .env file.
+   112→
+   113→The file contained only a local SQLite path and no credential leak was found.
+   114→
+   115→Nevertheless, it must not remain tracked.
+   116→
+   117→Verify:
+   118→
+   119→git ls-files
+   120→
+   121→Remove the tracked .env from Git while preserving the local development environment where appropriate.
+   122→
+   123→Ensure:
+   124→
+   125→.env
+   126→
+   127→remains ignored.
+   128→
+   129→Ensure:
+   130→
+   131→.env.example
+   132→
+   133→remains tracked.
+   134→
+   135→Do NOT place real secrets in .env.example.
+   136→
+   137→Verify Git status afterward.
+   138→
+   139→--------------------------------------------------
+   140→3. API CATCH-ALL
+   141→--------------------------------------------------
+   142→
+   143→Unknown /api/* routes currently return the default HTML 404 page.
+   144→
+   145→Create an appropriate API catch-all mechanism so unknown API routes return the standard Dwellers JSON API error envelope.
+   146→
+   147→The response must:
+   148→
+   149→- Return the correct HTTP status.
+   150→- Use the established API envelope.
+   151→- Not expose internal implementation details.
+   152→- Follow existing API conventions.
+   153→
+   154→Test:
+   155→
+   156→GET /api/does-not-exist
+   157→
+   158→and confirm it returns the API JSON error structure rather than HTML.
+   159→
+   160→--------------------------------------------------
+   161→4. DATABASE QUERY LOGGING
+   162→--------------------------------------------------
+   163→
+   164→Inspect src/lib/db.ts.
+   165→
+   166→Database query logging must NOT be enabled unconditionally.
+   167→
+   168→Development:
+   169→
+   170→Allow useful query logging.
+   171→
+   172→Production:
+   173→
+   174→Do not log every SQL query.
+   175→
+   176→Production should retain appropriate:
+   177→
+   178→- warnings
+   179→- errors
+   180→
+   181→Avoid unnecessary database logging that could expose PII or create performance problems.
+   182→
+   183→Test development and production configuration behavior.
+   184→
+   185→--------------------------------------------------
+   186→5. GHANA PHONE VALIDATION
+   187→--------------------------------------------------
+   188→
+   189→Fix the phone validation weakness identified in:
+   190→
+   191→src/lib/constants/ghana.ts
+   192→
+   193→The current validation allows an invalid network-prefix pattern because the network digit is optional.
+   194→
+   195→Correct the validation.
+   196→
+   197→Add tests covering:
+   198→
+   199→Valid:
+   200→
+   201→0201234567
+   202→0241234567
+   203→0501234567
+   204→0541234567
+   205→0551234567
+   206→0591234567
+   207→
+   208→and valid international equivalents where supported.
+   209→
+   210→Reject:
+   211→
+   212→invalid prefixes
+   213→letters
+   214→overlong numbers
+   215→malformed international numbers
+   216→
+   217→Do not weaken existing valid formats.
+   218→
+   219→--------------------------------------------------
+   220→6. SVG UPLOAD SECURITY
+   221→--------------------------------------------------
+   222→
+   223→User-uploaded SVG files can create stored-XSS risks.
+   224→
+   225→For the Phase 2 foundation:
+   226→
+   227→Prefer removing SVG from ordinary user-uploaded image/logo MIME allow-lists.
+   228→
+   229→Use safer image formats such as:
+   230→
+   231→JPEG
+   232→PNG
+   233→WEBP
+   234→
+   235→If SVG support is retained for a legitimate reason, it MUST be safely sanitized and served safely.
+   236→
+   237→Do not assume MIME type alone is sufficient.
+   238→
+   239→--------------------------------------------------
+   240→7. STORAGE STREAMING
+   241→--------------------------------------------------
+   242→
+   243→Inspect:
+   244→
+   245→src/lib/storage/local.ts
+   246→
+   247→Fix the Node Readable → Web ReadableStream conversion.
+   248→
+   249→Do not use an unsafe type cast as a substitute for the correct conversion.
+   250→
+   251→Also update the storage interface so streaming capability is properly represented if Phase 2 download routes require it.
+   252→
+   253→Create tests for:
+   254→
+   255→- upload
+   256→- read
+   257→- stream
+   258→- delete
+   259→- existence check
+   260→- path traversal protection
+   261→
+   262→--------------------------------------------------
+   263→8. RATE LIMITER HARDENING
+   264→--------------------------------------------------
+   265→
+   266→The current in-memory limiter can grow when attackers generate many unique bucket keys.
+   267→
+   268→Harden the eviction strategy.
+   269→
+   270→At capacity:
+   271→
+   272→- remove expired entries
+   273→- then evict oldest entries where necessary
+   274→
+   275→Do not compromise legitimate rate limiting.
+   276→
+   277→Keep the existing abstraction so it can later be backed by Redis.
+   278→
+   279→Do NOT implement Redis in this phase unless required by the existing architecture.
+   280→
+   281→--------------------------------------------------
+   282→9. TRUSTED PROXY / CLIENT IP
+   283→--------------------------------------------------
+   284→
+   285→Inspect IP extraction in:
+   286→
+   287→rate-limit.ts
+   288→audit.ts
+   289→proxy.ts
+   290→
+   291→Do not blindly trust arbitrary forwarded-for headers.
+   292→
+   293→Implement/document a trusted proxy strategy suitable for production deployment.
+   294→
+   295→The architecture should distinguish between:
+   296→
+   297→trusted proxy traffic
+   298→
+   299→and
+   300→
+   301→direct/untrusted traffic.
+   302→
+   303→Do not create a false sense of security by simply trusting any forwarded header.
+   304→
+   305→--------------------------------------------------
+   306→10. STRICT TYPESCRIPT SETTINGS
+   307→--------------------------------------------------
+   308→
+   309→Where compatible with the existing codebase, improve:
+   310→
+   311→noImplicitAny
+   312→
+   313→and related strictness.
+   314→
+   315→Do not introduce unsafe shortcuts simply to make the compiler pass.
+   316→
+   317→Review:
+   318→
+   319→reactStrictMode
+   320→
+   321→and enable it if compatible with the existing application.
+   322→
+   323→Do not use broad:
+   324→
+   325→any
+   326→
+   327→casts
+   328→
+   329→to hide errors.
+   330→
+   331→--------------------------------------------------
+   332→PART 2 — DATABASE STRATEGY
+   333→--------------------------------------------------
+   334→
+   335→Now establish the actual Dwellers database foundation.
+   336→
+   337→The database must be designed for a nationwide Ghana marketplace.
+   338→
+   339→Current development database:
+   340→
+   341→SQLite
+   342→
+   343→Production target:
+   344→
+   345→PostgreSQL
+   346→
+   347→The schema MUST remain PostgreSQL-ready.
+   348→
+   349→Do not use SQLite-specific features that create future migration problems.
+   350→
+   351→Use Prisma migrations.
+   352→
+   353→Do not rely on manually pushing an unreproducible schema.
+   354→
+   355→--------------------------------------------------
+   356→PART 3 — USER & IDENTITY FOUNDATION
+   357→--------------------------------------------------
+   358→
+   359→Expand the User model to support the Dwellers platform.
+   360→
+   361→Users must support:
+   362→
+   363→- id
+   364→- name
+   365→- email
+   366→- phone
+   367→- password/authentication reference
+   368→- role
+   369→- status
+   370→- profile information
+   371→- email verification status
+   372→- phone verification status
+   373→- last login
+   374→- createdAt
+   375→- updatedAt
+   376→- deletedAt
+   377→
+   378→Do not store plaintext passwords.
+   379→
+   380→Preserve the existing secure password abstraction.
+   381→
+   382→--------------------------------------------------
+   383→PART 4 — ROLES
+   384→--------------------------------------------------
+   385→
+   386→Support these Dwellers roles:
+   387→
+   388→CUSTOMER
+   389→
+   390→ARTISAN
+   391→
+   392→CONTRACTOR
+   393→
+   394→CONSTRUCTION_COMPANY
+   395→
+   396→SUPPLIER
+   397→
+   398→EQUIPMENT_PROVIDER
+   399→
+   400→ADMINISTRATOR
+   401→
+   402→SUPER_ADMINISTRATOR
+   403→
+   404→Do not replace the existing RBAC system.
+   405→
+   406→Integrate the database with the existing server-side RBAC foundation.
+   407→
+   408→Role assignment remains protected.
+   409→
+   410→Do not allow users to submit a role and automatically obtain privileged access.
+   411→
+   412→--------------------------------------------------
+   413→PART 5 — PROFILES
+   414→--------------------------------------------------
+   415→
+   416→Create appropriate profile structures.
+   417→
+   418→A User may have:
+   419→
+   420→Personal Profile
+   421→
+   422→Professional Profile
+   423→
+   424→Business/Company relationship
+   425→
+   426→Do not force every user to create a company.
+   427→
+   428→--------------------------------------------------
+   429→PART 6 — BUSINESS / COMPANY
+   430→--------------------------------------------------
+   431→
+   432→Create:
+   433→
+   434→Business
+   435→
+   436→A business should support:
+   437→
+   438→- id
+   439→- owner
+   440→- business name
+   441→- business type
+   442→- description
+   443→- logo
+   444→- email
+   445→- phone
+   446→- location
+   447→- service areas
+   448→- registration information where applicable
+   449→- verification status
+   450→- status
+   451→- createdAt
+   452→- updatedAt
+   453→- deletedAt where appropriate
+   454→
+   455→A business can have multiple professionals/team members where appropriate.
+   456→
+   457→--------------------------------------------------
+   458→PART 7 — PROFESSIONAL PROVIDERS
+   459→--------------------------------------------------
+   460→
+   461→Create a ProviderProfile.
+   462→
+   463→Support:
+   464→
+   465→- user
+   466→- business
+   467→- profession
+   468→- biography
+   469→- years of experience
+   470→- service areas
+   471→- availability status
+   472→- starting price/rate
+   473→- verification status
+   474→- rating summary
+   475→- completed jobs count
+   476→- response rate where appropriate
+   477→
+   478→The design must support both:
+   479→
+   480→INDIVIDUAL ARTISAN
+   481→
+   482→and
+   483→
+   484→PROFESSIONAL/BUSINESS PROVIDER
+   485→
+   486→--------------------------------------------------
+   487→PART 8 — NATIONWIDE GHANA LOCATION SYSTEM
+   488→--------------------------------------------------
+   489→
+   490→This is a CORE Dwellers requirement.
+   491→
+   492→Dwellers is for the whole of Ghana.
+   493→
+   494→Do NOT design location around Accra.
+   495→
+   496→Create a proper hierarchical location model:
+   497→
+   498→GHANA
+   499→ ↓
+   500→REGION
+   501→ ↓
+   502→DISTRICT / MUNICIPALITY / METROPOLITAN AREA
+   503→ ↓
+   504→TOWN / CITY
+   505→ ↓
+   506→COMMUNITY / AREA
+   507→
+   508→Also support:
+   509→
+   510→latitude
+   511→longitude
+   512→
+   513→where available.
+   514→
+   515→Seed the 16 Ghana regions.
+   516→
+   517→The architecture must allow expansion of towns, communities and areas without modifying application code.
+   518→
+   519→Do not hard-code locations into frontend components.
+   520→
+   521→--------------------------------------------------
+   522→PART 9 — SERVICE AREAS
+   523→--------------------------------------------------
+   524→
+   525→This is critical to the Dwellers marketplace.
+   526→
+   527→A provider must be able to define where they work.
+   528→
+   529→Example:
+   530→
+   531→Provider:
+   532→
+   533→Kwame Plumbing Services
+   534→
+   535→Base location:
+   536→
+   537→Nsawam
+   538→
+   539→Service areas:
+   540→
+   541→Nsawam
+   542→Adoagyiri
+   543→Suhum
+   544→Other selected locations
+   545→
+   546→Create a ServiceArea relationship.
+   547→
+   548→The system must later be able to answer:
+   549→
+   550→"Which plumbers serve Nsawam?"
+   551→
+   552→This is NOT simply the same as the provider's home address.
+   553→
+   554→A provider can live in one place and serve multiple locations.
+   555→
+   556→--------------------------------------------------
+   557→PART 10 — CATEGORIES
+   558→--------------------------------------------------
+   559→
+   560→Create hierarchical marketplace categories.
+   561→
+   562→Examples:
+   563→
+   564→CONSTRUCTION SERVICES
+   565→
+   566→  Building
+   567→  Roofing
+   568→  Plumbing
+   569→  Electrical
+   570→  Masonry
+   571→  Carpentry
+   572→  Welding
+   573→  Painting
+   574→  Tiling
+   575→  Landscaping
+   576→  Renovation
+   577→  Property Maintenance
+   578→
+   579→PROFESSIONAL SERVICES
+   580→
+   581→  Architecture
+   582→  Engineering
+   583→  Quantity Surveying
+   584→  Interior Design
+   585→  Project Management
+   586→
+   587→MATERIALS
+   588→
+   589→  Cement
+   590→  Blocks
+   591→  Sand
+   592→  Aggregates
+   593→  Iron Rods
+   594→  Roofing Materials
+   595→  Tiles
+   596→  Paint
+   597→  Doors
+   598→  Windows
+   599→  Electrical Materials
+   600→  Plumbing Materials
+   601→
+   602→EQUIPMENT
+   603→
+   604→  Excavators
+   605→  Loaders
+   606→  Trucks
+   607→  Concrete Mixers
+   608→  Generators
+   609→  Cranes
+   610→  Rollers
+   611→  Scaffolding
+   612→
+   613→Do not hard-code categories into application logic.
+   614→
+   615→Administrators should eventually be able to manage categories.
+   616→
+   617→--------------------------------------------------
+   618→PART 11 — SERVICES
+   619→--------------------------------------------------
+   620→
+   621→Create Service.
+   622→
+   623→A service should support:
+   624→
+   625→- provider
+   626→- business
+   627→- category
+   628→- service name
+   629→- description
+   630→- pricing model
+   631→- starting price
+   632→- currency
+   633→- service areas
+   634→- availability
+   635→- status
+   636→- createdAt
+   637→- updatedAt
+   638→
+   639→Pricing models:
+   640→
+   641→FIXED
+   642→
+   643→STARTING_FROM
+   644→
+   645→PER_HOUR
+   646→
+   647→PER_DAY
+   648→
+   649→PER_UNIT
+   650→
+   651→QUOTE_REQUIRED
+   652→
+   653→Use the established GH₵ integer-pesewas money system.
+   654→
+   655→--------------------------------------------------
+   656→PART 12 — PRODUCTS
+   657→--------------------------------------------------
+   658→
+   659→Create Product.
+   660→
+   661→Support:
+   662→
+   663→- seller/provider
+   664→- business
+   665→- category
+   666→- product name
+   667→- SKU
+   668→- description
+   669→- price
+   670→- unit
+   671→- stock quantity
+   672→- minimum order quantity
+   673→- location
+   674→- delivery availability
+   675→- status
+   676→- images
+   677→- createdAt
+   678→- updatedAt
+   679→
+   680→Units should be data-driven.
+   681→
+   682→Examples:
+   683→
+   684→bag
+   685→piece
+   686→ton
+   687→length
+   688→square metre
+   689→cubic metre
+   690→bundle
+   691→carton
+   692→unit
+   693→
+   694→Do not hard-code units in UI logic.
+   695→
+   696→--------------------------------------------------
+   697→PART 13 — EQUIPMENT
+   698→--------------------------------------------------
+   699→
+   700→Create Equipment.
+   701→
+   702→Support:
+   703→
+   704→- owner/provider
+   705→- business
+   706→- category
+   707→- equipment name
+   708→- brand
+   709→- model
+   710→- year
+   711→- condition
+   712→- daily rate
+   713→- weekly rate
+   714→- monthly rate
+   715→- deposit
+   716→- location
+   717→- operator availability
+   718→- delivery availability
+   719→- description
+   720→- images
+   721→- availability status
+   722→
+   723→Use integer pesewas for all monetary values.
+   724→
+   725→--------------------------------------------------
+   726→PART 14 — JOB REQUEST / RFQ
+   727→--------------------------------------------------
+   728→
+   729→This is one of the most important foundations of Dwellers.
+   730→
+   731→Dwellers must eventually allow:
+   732→
+   733→A person in Nsawam can open Dwellers.
+   734→
+   735→Search:
+   736→
+   737→PLUMBER
+   738→
+   739→Select:
+   740→
+   741→NSAWAM
+   742→
+   743→Find an artisan.
+   744→
+   745→Click:
+   746→
+   747→REQUEST A JOB
+   748→
+   749→The customer can describe the problem without making a phone call.
+   750→
+   751→Example:
+   752→
+   753→"My kitchen sink is leaking. I need a plumber to come and repair it."
+   754→
+   755→The customer should eventually be able to attach:
+   756→
+   757→- photographs
+   758→- videos
+   759→- documents
+   760→
+   761→and specify:
+   762→
+   763→- location
+   764→- preferred date
+   765→- preferred time
+   766→- budget
+   767→- description
+   768→
+   769→Create the database foundation now.
+   770→
+   771→Entity:
+   772→
+   773→JobRequest
+   774→
+   775→Support:
+   776→
+   777→- customer
+   778→- category
+   779→- service
+   780→- location
+   781→- latitude
+   782→- longitude
+   783→- description
+   784→- budget
+   785→- preferred date
+   786→- preferred time
+   787→- attachments
+   788→- status
+   789→- createdAt
+   790→- updatedAt
+   791→
+   792→Statuses should include:
+   793→
+   794→DRAFT
+   795→SUBMITTED
+   796→MATCHING
+   797→RESPONDED
+   798→ACCEPTED
+   799→IN_PROGRESS
+   800→COMPLETED
+   801→CANCELLED
+   802→
+   803→Do not build the full UI workflow yet unless needed for testing.
+   804→
+   805→The database must support it.
+   806→
+   807→--------------------------------------------------
+   808→PART 15 — PROVIDER MATCHING FOUNDATION
+   809→--------------------------------------------------
+   810→
+   811→Prepare the schema for provider matching.
+   812→
+   813→The future matching engine must be able to evaluate:
+   814→
+   815→1. Service/category match
+   816→2. Service-area match
+   817→3. Location/distance
+   818→4. Availability
+   819→5. Verification
+   820→6. Rating
+   821→7. Experience
+   822→8. Response rate
+   823→
+   824→Do NOT implement the final algorithm yet.
+   825→
+   826→Create the relationships and indexes required for efficient matching.
+   827→
+   828→The architecture must eventually support:
+   829→
+   830→Customer
+   831→→ Job Request
+   832→→ Location
+   833→→ Required Service
+   834→→ Eligible Providers
+   835→→ Ranked Providers
+   836→
+   837→--------------------------------------------------
+   838→PART 16 — QUOTATIONS
+   839→--------------------------------------------------
+   840→
+   841→Create the foundation for:
+   842→
+   843→Quote
+   844→
+   845→A quotation must support:
+   846→
+   847→- job request
+   848→- provider
+   849→- customer
+   850→- quote number
+   851→- description
+   852→- labour amount
+   853→- material amount
+   854→- equipment amount
+   855→- other charges
+   856→- discount
+   857→- tax where applicable
+   858→- total amount
+   859→- validity period
+   860→- estimated duration
+   861→- terms
+   862→- status
+   863→- createdAt
+   864→- updatedAt
+   865→
+   866→IMPORTANT:
+   867→
+   868→When Phase 5 implements quotations, totals must be calculated on the server.
+   869→
+   870→Never trust financial totals submitted by the frontend.
+   871→
+   872→--------------------------------------------------
+   873→PART 17 — QUOTE ITEMS
+   874→--------------------------------------------------
+   875→
+   876→Create QuoteItem where appropriate.
+   877→
+   878→Support itemized quotations:
+   879→
+   880→Example:
+   881→
+   882→Labour — GH₵1,000
+   883→
+   884→Materials — GH₵500
+   885→
+   886→Transport — GH₵100
+   887→
+   888→Total — GH₵1,600
+   889→
+   890→Use integer pesewas.
+   891→
+   892→--------------------------------------------------
+   893→PART 18 — PROJECT FOUNDATION
+   894→--------------------------------------------------
+   895→
+   896→Create the foundation for future projects.
+   897→
+   898→Project:
+   899→
+   900→- customer
+   901→- provider/business
+   902→- project title
+   903→- category
+   904→- description
+   905→- location
+   906→- budget
+   907→- start date
+   908→- expected completion date
+   909→- actual completion date
+   910→- status
+   911→- progress
+   912→- createdAt
+   913→- updatedAt
+   914→
+   915→Statuses:
+   916→
+   917→DRAFT
+   918→OPEN
+   919→QUOTATION
+   920→ACCEPTED
+   921→ACTIVE
+   922→ON_HOLD
+   923→COMPLETED
+   924→CANCELLED
+   925→
+   926→Do not build the full project-management UI yet.
+   927→
+   928→--------------------------------------------------
+   929→PART 19 — PROJECT TASKS
+   930→--------------------------------------------------
+   931→
+   932→Create ProjectTask.
+   933→
+   934→Support:
+   935→
+   936→- project
+   937→- task name
+   938→- description
+   939→- assigned user
+   940→- priority
+   941→- status
+   942→- start date
+   943→- due date
+   944→- completion date
+   945→- progress
+   946→
+   947→Prepare for future project management.
+   948→
+   949→--------------------------------------------------
+   950→PART 20 — PROJECT MILESTONES
+   951→--------------------------------------------------
+   952→
+   953→Create ProjectMilestone.
+   954→
+   955→Support:
+   956→
+   957→- project
+   958→- name
+   959→- description
+   960→- due date
+   961→- completion date
+   962→- status
+   963→- payment reference where appropriate
+   964→
+   965→--------------------------------------------------
+   966→PART 21 — MESSAGING FOUNDATION
+   967→--------------------------------------------------
+   968→
+   969→Create:
+   970→
+   971→Conversation
+   972→
+   973→Message
+   974→
+   975→The database must support customer/provider communication without requiring a phone call.
+   976→
+   977→A conversation may be linked to:
+   978→
+   979→- Job Request
+   980→- Quote
+   981→- Project
+   982→- Order
+   983→
+   984→Message must support:
+   985→
+   986→- sender
+   987→- conversation
+   988→- message body
+   989→- attachment references
+   990→- read status
+   991→- createdAt
+   992→
+   993→Do not build a full real-time messaging system in this phase.
+   994→
+   995→Build the database and backend foundation only.
+   996→
+   997→--------------------------------------------------
+   998→PART 22 — NOTIFICATIONS
+   999→--------------------------------------------------
+  1000→
+  1001→Create Notification.
+  1002→
+  1003→Support:
+  1004→
+  1005→- recipient
+  1006→- type
+  1007→- title
+  1008→- message
+  1009→- related entity
+  1010→- read status
+  1011→- createdAt
+  1012→
+  1013→Future channels:
+  1014→
+  1015→IN_APP
+  1016→EMAIL
+  1017→SMS
+  1018→WHATSAPP
+  1019→
+  1020→Do not integrate third-party providers in this phase unless already required.
+  1021→
+  1022→--------------------------------------------------
+  1023→PART 23 — REVIEWS
+  1024→--------------------------------------------------
+  1025→
+  1026→Create Review.
+  1027→
+  1028→Support:
+  1029→
+  1030→- reviewer
+  1031→- provider
+  1032→- business
+  1033→- project
+  1034→- order
+  1035→- rating
+  1036→- quality rating
+  1037→- professionalism rating
+  1038→- communication rating
+  1039→- timeliness rating
+  1040→- value rating
+  1041→- review text
+  1042→- status
+  1043→- createdAt
+  1044→
+  1045→Where possible, prepare the design so verified reviews can originate from completed jobs/orders.
+  1046→
+  1047→--------------------------------------------------
+  1048→PART 24 — VERIFICATION
+  1049→--------------------------------------------------
+  1050→
+  1051→Create Verification.
+  1052→
+  1053→Support:
+  1054→
+  1055→- user
+  1056→- business/provider
+  1057→- verification type
+  1058→- document references
+  1059→- status
+  1060→- reviewer
+  1061→- notes
+  1062→- submittedAt
+  1063→- approvedAt
+  1064→- expiresAt where applicable
+  1065→
+  1066→Statuses:
+  1067→
+  1068→PENDING
+  1069→UNDER_REVIEW
+  1070→APPROVED
+  1071→REJECTED
+  1072→EXPIRED
+  1073→
+  1074→--------------------------------------------------
+  1075→PART 25 — PORTFOLIO
+  1076→--------------------------------------------------
+  1077→
+  1078→Create PortfolioItem.
+  1079→
+  1080→Support:
+  1081→
+  1082→- provider/business
+  1083→- title
+  1084→- description
+  1085→- category
+  1086→- location
+  1087→- completion date
+  1088→- images
+  1089→- videos
+  1090→- services provided
+  1091→
+  1092→--------------------------------------------------
+  1093→PART 26 — FAVORITES
+  1094→--------------------------------------------------
+  1095→
+  1096→Prepare a reusable favorites/saved-items system.
+  1097→
+  1098→Customers should eventually be able to save:
+  1099→
+  1100→- providers
+  1101→- services
+  1102→- products
+  1103→- equipment
+  1104→
+  1105→--------------------------------------------------
+  1106→PART 27 — ORDERS
+  1107→--------------------------------------------------
+  1108→
+  1109→Create the foundation for commerce.
+  1110→
+  1111→Order:
+  1112→
+  1113→- customer
+  1114→- seller
+  1115→- order number
+  1116→- subtotal
+  1117→- delivery fee
+  1118→- discount
+  1119→- total
+  1120→- currency
+  1121→- payment status
+  1122→- order status
+  1123→- delivery information
+  1124→- createdAt
+  1125→- updatedAt
+  1126→
+  1127→OrderItem:
+  1128→
+  1129→- order
+  1130→- product
+  1131→- quantity
+  1132→- unit price
+  1133→- total
+  1134→
+  1135→IMPORTANT:
+  1136→
+  1137→Store the historical unit price used at purchase time.
+  1138→
+  1139→Do not calculate historical order totals from today's product price.
+  1140→
+  1141→--------------------------------------------------
+  1142→PART 28 — PAYMENTS
+  1143→--------------------------------------------------
+  1144→
+  1145→Create a payment abstraction.
+  1146→
+  1147→Do not tightly couple the database to one gateway.
+  1148→
+  1149→Support:
+  1150→
+  1151→- payment ID
+  1152→- transaction reference
+  1153→- user
+  1154→- order
+  1155→- project
+  1156→- amount
+  1157→- currency
+  1158→- payment provider
+  1159→- provider transaction ID
+  1160→- payment method
+  1161→- status
+  1162→- paidAt
+  1163→- metadata
+  1164→
+  1165→Currency:
+  1166→
+  1167→GHS
+  1168→
+  1169→All amounts:
+  1170→
+  1171→INTEGER PESEWAS
+  1172→
+  1173→IMPORTANT:
+  1174→
+  1175→When Phase 2 introduces commissions, splits or refunds, create explicit remainder/rounding rules.
+  1176→
+  1177→Do not use ad-hoc division for money.
+  1178→
+  1179→--------------------------------------------------
+  1180→PART 29 — AUDIT LOGGING
+  1181→--------------------------------------------------
+  1182→
+  1183→Preserve the existing append-only AuditLog system.
+  1184→
+  1185→Extend it where appropriate to record important domain actions:
+  1186→
+  1187→- account changes
+  1188→- provider changes
+  1189→- verification
+  1190→- quote changes
+  1191→- job changes
+  1192→- order changes
+  1193→- payment events
+  1194→- administrative actions
+  1195→
+  1196→Never log:
+  1197→
+  1198→- passwords
+  1199→- authentication secrets
+  1200→- API keys
+  1201→- sensitive payment credentials
+  1202→
+  1203→--------------------------------------------------
+  1204→PART 30 — DATABASE INDEXING
+  1205→--------------------------------------------------
+  1206→
+  1207→Create appropriate indexes for the expected Dwellers searches.
+  1208→
+  1209→Especially consider:
+  1210→
+  1211→Users:
+  1212→
+  1213→email
+  1214→phone
+  1215→role
+  1216→status
+  1217→
+  1218→Providers:
+  1219→
+  1220→profession
+  1221→verification status
+  1222→availability
+  1223→
+  1224→Services:
+  1225→
+  1226→category
+  1227→provider
+  1228→status
+  1229→
+  1230→Locations:
+  1231→
+  1232→region
+  1233→district
+  1234→town
+  1235→community
+  1236→
+  1237→Service Areas:
+  1238→
+  1239→provider
+  1240→location
+  1241→
+  1242→Job Requests:
+  1243→
+  1244→customer
+  1245→category
+  1246→service
+  1247→location
+  1248→status
+  1249→createdAt
+  1250→
+  1251→Quotes:
+  1252→
+  1253→job request
+  1254→provider
+  1255→status
+  1256→
+  1257→Projects:
+  1258→
+  1259→customer
+  1260→provider
+  1261→status
+  1262→
+  1263→Products:
+  1264→
+  1265→seller
+  1266→category
+  1267→location
+  1268→status
+  1269→
+  1270→Equipment:
+  1271→
+  1272→provider
+  1273→category
+  1274→location
+  1275→availability
+  1276→
+  1277→Do not blindly add indexes everywhere.
+  1278→
+  1279→Use indexes based on actual query patterns.
+  1280→
+  1281→--------------------------------------------------
+  1282→PART 31 — DATABASE OWNERSHIP / IDOR PROTECTION
+  1283→--------------------------------------------------
+  1284→
+  1285→Every domain resource must eventually enforce ownership.
+  1286→
+  1287→Example:
+  1288→
+  1289→Customer A must NOT be able to modify Customer B's project.
+  1290→
+  1291→Provider A must NOT be able to modify Provider B's services.
+  1292→
+  1293→Supplier A must NOT be able to modify Supplier B's products.
+  1294→
+  1295→Customer A must NOT be able to read Customer B's private messages.
+  1296→
+  1297→The pattern should be:
+  1298→
+  1299→LOAD RESOURCE
+  1300→→ VERIFY OWNERSHIP/PERMISSION
+  1301→→ PERFORM ACTION
+  1302→
+  1303→Never trust IDs from the frontend.
+  1304→
+  1305→--------------------------------------------------
+  1306→PART 32 — API FOUNDATION
+  1307→--------------------------------------------------
+  1308→
+  1309→Implement the first real backend endpoints needed to establish the domain foundation.
+  1310→
+  1311→Prioritize:
+  1312→
+  1313→/api/users
+  1314→/api/businesses
+  1315→/api/providers
+  1316→/api/categories
+  1317→/api/locations
+  1318→/api/services
+  1319→/api/products
+  1320→/api/equipment
+  1321→/api/job-requests
+  1322→
+  1323→Use the existing handler factory.
+  1324→
+  1325→Every endpoint must follow:
+  1326→
+  1327→Rate limit
+  1328→→ Authentication
+  1329→→ RBAC
+  1330→→ Validation
+  1331→→ Business logic
+  1332→→ Standard response envelope
+  1333→→ Structured logging
+  1334→
+  1335→Public endpoints may explicitly bypass authentication where appropriate, but authorization rules must remain clear.
+  1336→
+  1337→--------------------------------------------------
+  1338→PART 33 — VALIDATION
+  1339→--------------------------------------------------
+  1340→
+  1341→Use Zod for:
+  1342→
+  1343→- request bodies
+  1344→- query parameters
+  1345→- path parameters
+  1346→- uploads
+  1347→- financial inputs
+  1348→- location inputs
+  1349→
+  1350→Reject malformed input before business logic.
+  1351→
+  1352→Do not duplicate validation unnecessarily between unrelated layers.
+  1353→
+  1354→--------------------------------------------------
+  1355→PART 34 — PAGINATION
+  1356→--------------------------------------------------
+  1357→
+  1358→List endpoints must support pagination.
+  1359→
+  1360→Do not return unlimited database records.
+  1361→
+  1362→Use the existing pagination helper and response metadata.
+  1363→
+  1364→--------------------------------------------------
+  1365→PART 35 — SEARCH PREPARATION
+  1366→--------------------------------------------------
+  1367→
+  1368→Do not implement an advanced search engine yet.
+  1369→
+  1370→However, database queries must be designed so the next phase can efficiently perform:
+  1371→
+  1372→"Plumbers in Nsawam"
+  1373→
+  1374→"Electricians in Ho"
+  1375→
+  1376→"Building contractors in Kumasi"
+  1377→
+  1378→"Cement suppliers in Tamale"
+  1379→
+  1380→"Excavators available in Tema"
+  1381→
+  1382→Prepare queryable relationships and indexes.
+  1383→
+  1384→--------------------------------------------------
+  1385→PART 36 — GHANA MONEY
+  1386→--------------------------------------------------
+  1387→
+  1388→Continue using the existing integer-pesewas money helpers.
+  1389→
+  1390→Do not introduce:
+  1391→
+  1392→float-based currency arithmetic.
+  1393→
+  1394→Do not store financial values as floating-point numbers.
+  1395→
+  1396→Use:
+  1397→
+  1398→GHS
+  1399→
+  1400→and integer minor units.
+  1401→
+  1402→Create a clear policy for:
+  1403→
+  1404→- rounding
+  1405→- division
+  1406→- percentage calculations
+  1407→- commissions
+  1408→- discounts
+  1409→- tax
+  1410→- refunds
+  1411→
+  1412→where introduced.
+  1413→
+  1414→--------------------------------------------------
+  1415→PART 37 — TESTING
+  1416→--------------------------------------------------
+  1417→
+  1418→Create tests for the new Phase 2 foundation.
+  1419→
+  1420→Minimum testing areas:
+  1421→
+  1422→USER
+  1423→
+  1424→BUSINESS
+  1425→
+  1426→PROVIDER
+  1427→
+  1428→CATEGORY
+  1429→
+  1430→LOCATION
+  1431→
+  1432→SERVICE AREA
+  1433→
+  1434→SERVICE
+  1435→
+  1436→PRODUCT
+  1437→
+  1438→EQUIPMENT
+  1439→
+  1440→JOB REQUEST
+  1441→
+  1442→QUOTE
+  1443→
+  1444→PROJECT
+  1445→
+  1446→MESSAGE
+  1447→
+  1448→NOTIFICATION
+  1449→
+  1450→REVIEW
+  1451→
+  1452→VERIFICATION
+  1453→
+  1454→ORDER
+  1455→
+  1456→PAYMENT
+  1457→
+  1458→Test:
+  1459→
+  1460→- creation
+  1461→- validation
+  1462→- relationships
+  1463→- authorization
+  1464→- ownership
+  1465→- invalid IDs
+  1466→- unauthorized access
+  1467→- duplicate records
+  1468→- pagination
+  1469→- money handling
+  1470→
+  1471→--------------------------------------------------
+  1472→PART 38 — SECURITY TESTING
+  1473→--------------------------------------------------
+  1474→
+  1475→Explicitly test:
+  1476→
+  1477→Customer accessing another customer's project → DENIED
+  1478→
+  1479→Provider modifying another provider's service → DENIED
+  1480→
+  1481→Supplier modifying another supplier's product → DENIED
+  1482→
+  1483→Customer reading another user's private message → DENIED
+  1484→
+  1485→Provider accessing another provider's quote → DENIED
+  1486→
+  1487→Unauthorized user accessing protected API → DENIED
+  1488→
+  1489→Invalid request body → VALIDATION ERROR
+  1490→
+  1491→Invalid resource ID → SAFE ERROR
+  1492→
+  1493→Do not expose database details.
+  1494→
+  1495→--------------------------------------------------
+  1496→PART 39 — MIGRATION TEST
+  1497→--------------------------------------------------
+  1498→
+  1499→The migration system must work from a clean database.
+  1500→
+  1501→Test:
+  1502→
+  1503→1. Remove development database.
+  1504→2. Run migrations from scratch.
+  1505→3. Seed reference data.
+  1506→4. Start application.
+  1507→5. Run tests.
+  1508→6. Confirm application works.
+  1509→
+  1510→Do not rely on an existing developer database that cannot be recreated.
+  1511→
+  1512→--------------------------------------------------
+  1513→PART 40 — SEED DATA
+  1514→--------------------------------------------------
+  1515→
+  1516→Create development seed data for:
+  1517→
+  1518→- 16 Ghana regions
+  1519→- sample districts/municipalities
+  1520→- sample towns
+  1521→- sample communities
+  1522→- roles
+  1523→- categories
+  1524→- development users
+  1525→- sample providers
+  1526→- sample businesses
+  1527→- sample services
+  1528→
+  1529→Clearly identify development/demo data.
+  1530→
+  1531→Do not make fake providers appear as real verified businesses.
+  1532→
+  1533→--------------------------------------------------
+  1534→PART 41 — POSTGRESQL READINESS
+  1535→--------------------------------------------------
+  1536→
+  1537→Review every new Prisma model for PostgreSQL compatibility.
+  1538→
+  1539→Do not introduce:
+  1540→
+  1541→SQLite-only SQL
+  1542→SQLite-specific types
+  1543→SQLite-specific assumptions
+  1544→
+  1545→The application must remain portable.
+  1546→
+  1547→At the appropriate point in Phase 2, document the production PostgreSQL migration procedure.
+  1548→
+  1549→Do not deploy PostgreSQL yet unless explicitly instructed.
+  1550→
+  1551→--------------------------------------------------
+  1552→PART 42 — DOCUMENTATION
+  1553→--------------------------------------------------
+  1554→
+  1555→Update:
+  1556→
+  1557→README.md
+  1558→
+  1559→ARCHITECTURE.md
+  1560→
+  1561→DATABASE.md
+  1562→
+  1563→Create documentation describing:
+  1564→
+  1565→- database entities
+  1566→- relationships
+  1567→- location hierarchy
+  1568→- provider/service-area relationship
+  1569→- job request architecture
+  1570→- quotation architecture
+  1571→- project architecture
+  1572→- messaging architecture
+  1573→- payment architecture
+  1574→- authorization model
+  1575→- migration process
+  1576→- seed process
+  1577→
+  1578→Also document:
+  1579→
+  1580→HOW DWELLERS FINDS AN ARTISAN
+  1581→
+  1582→Example:
+  1583→
+  1584→Customer
+  1585→→ Service
+  1586→→ Location
+  1587→→ Service Areas
+  1588→→ Eligible Providers
+  1589→
+  1590→--------------------------------------------------
+  1591→PART 43 — DO NOT BUILD THESE YET
+  1592→--------------------------------------------------
+  1593→
+  1594→Do NOT yet build:
+  1595→
+  1596→- advanced marketplace UI
+  1597→- final provider search UI
+  1598→- full messaging UI
+  1599→- payment gateway integration
+  1600→- advanced matching algorithm
+  1601→- AI recommendations
+  1602→- construction cost estimator
+  1603→- complete project management UI
+  1604→- production WhatsApp integration
+  1605→- production SMS integration
+  1606→- production email integration
+  1607→- mobile app
+  1608→- multi-vendor checkout
+  1609→- complex commission engine
+  1610→
+  1611→These belong to later phases.
+  1612→
+  1613→Build only the backend/database foundations required to support them.
+  1614→
+  1615→--------------------------------------------------
+  1616→PART 44 — FINAL VERIFICATION
+  1617→--------------------------------------------------
+  1618→
+  1619→Before declaring Phase 2 complete, run:
+  1620→
+  1621→bun run lint
+  1622→
+  1623→tsc --noEmit
+  1624→
+  1625→bun run verify
+  1626→
+  1627→All relevant tests.
+  1628→
+  1629→Database migration from clean state.
+  1630→
+  1631→Browser smoke test.
+  1632→
+  1633→API tests.
+  1634→
+  1635→Security/authorization tests.
+  1636→
+  1637→The TypeScript build MUST NOT be allowed to hide errors.
+  1638→
+  1639→Verify:
+  1640→
+  1641→ignoreBuildErrors = false
+  1642→
+  1643→--------------------------------------------------
+  1644→PART 45 — PHASE 2 COMPLETION REPORT
+  1645→--------------------------------------------------
+  1646→
+  1647→When complete, return a detailed report.
+  1648→
+  1649→Use this structure:
+  1650→
+  1651→# DWELLERS PHASE 2 REPORT
+  1652→
+  1653→## 1. STATUS
+  1654→
+  1655→COMPLETE / INCOMPLETE
+  1656→
+  1657→## 2. PHASE 1 ISSUES FIXED
+  1658→
+  1659→List each of the ten issues and its status.
+  1660→
+  1661→## 3. TYPESCRIPT
+  1662→
+  1663→Show:
+  1664→
+  1665→tsc --noEmit
+  1666→
+  1667→result.
+  1668→
+  1669→## 4. DATABASE
+  1670→
+  1671→List every table/model created.
+  1672→
+  1673→## 5. RELATIONSHIPS
+  1674→
+  1675→Explain the important relationships.
+  1676→
+  1677→## 6. GHANA LOCATION
+  1678→
+  1679→Explain:
+  1680→
+  1681→Region
+  1682→→ District
+  1683→→ Town
+  1684→→ Community
+  1685→→ Coordinates
+  1686→
+  1687→## 7. SERVICE AREAS
+  1688→
+  1689→Explain how the system determines which providers serve a location.
+  1690→
+  1691→## 8. JOB REQUEST FOUNDATION
+  1692→
+  1693→Explain how a customer will eventually request an artisan without making a phone call.
+  1694→
+  1695→## 9. API ENDPOINTS
+  1696→
+  1697→List all endpoints created.
+  1698→
+  1699→## 10. SECURITY
+  1700→
+  1701→Explain authentication, RBAC, ownership and IDOR protection.
+  1702→
+  1703→## 11. MONEY
+  1704→
+  1705→Explain how GH₵ and pesewas are handled.
+  1706→
+  1707→## 12. TEST RESULTS
+  1708→
+  1709→Show exact results.
+  1710→
+  1711→## 13. MIGRATION
+  1712→
+  1713→Confirm a clean database can be recreated.
+  1714→
+  1715→## 14. POSTGRESQL READINESS
+  1716→
+  1717→Explain any remaining migration considerations.
+  1718→
+  1719→## 15. KNOWN ISSUES
+  1720→
+  1721→List anything remaining.
+  1722→
+  1723→## 16. GIT
+  1724→
+  1725→Show final git status and commit information.
+  1726→
+  1727→## 17. NEXT PHASE
+  1728→
+  1729→The next phase is:
+  1730→
+  1731→PHASE 3 — AUTHENTICATION, REGISTRATION & ROLE-BASED DASHBOARDS
+  1732→
+  1733→Do NOT automatically start Phase 3.
+  1734→
+  1735→WAIT FOR PROJECT OWNER APPROVAL.
