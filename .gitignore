@@ -64,4 +64,4 @@ server.log
 
 # sandbox runtime scripts & artifacts
 /.zscripts/
-/upload/
+/upload/tool-results/
