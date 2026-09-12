@@ -167,3 +167,23 @@ Stage Summary:
 - Report: 11 chapters - executive summary, scope/seam, auth core, registration, authorization/guards, dashboards, notifications/audit, verification evidence, operational findings (AUTH_SECRET incident), deferrals, phase ledger + Phase 4 gate.
 - Fresh battery re-verified during this task: 48 + 106 + 73 checks green, lint 0, tsc 0; environment restored (seed + AUTH_SECRET).
 - Project remains at the PHASE 4 gate (Find / Nationwide Discovery) awaiting project owner approval; no project source code touched.
+
+---
+Task ID: 9
+Agent: main (Super Z)
+Task: PHASE 4 — FIND / NATIONWIDE DISCOVERY (52-part requirements)
+
+Work Log:
+- Built on Phase 1-3 seams only (schema, RBAC, handler factory, location/category architecture) — nothing rebuilt, no duplicate models.
+- Commit 8e26c98 (engine): DiscoveryEvent model + migration phase4_discovery_events (analytics-only, no PII columns); src/modules/discovery/ranking.ts (central 30/25/15/10/10/5/5 weights, distance bands, availability/verification maps, 600-candidate cap); src/modules/discovery/provider-discovery.ts (discoverProviders pipeline: strict Zod criteria → resolve IDs → hard filters → capped fetch → score → sort → paginate → labeled nearby fallback; public profile loader); src/lib/geo.ts (Haversine); GET /api/discovery/providers + POST /api/discovery/events (strict, rate-limited search preset).
+- Commit c3f713d (frontend): SearchPanel (WHAT taxonomy combobox + WHERE cascade + community refinement, all DB-driven); /find results (server-side filters incl. mobile sheet, sorting, real counts, breadcrumb, pagination, honest empty state); /find/[category] + /find/[category]/[location] DB-driven SEO landings; /providers/[id] public profile (about/services/portfolio/reviews/areas/availability, JSON-LD with ratings only when real, REQUEST SERVICE + MESSAGE PROVIDER auth-preserving transitions, no fake submissions); header Find nav; footer DB-driven discovery links; sitemap.ts (content-backed URLs only, static robots.txt removed in favour of dynamic robots.ts).
+- Commit 84e1213 (tests): scripts/verify-phase4.ts — 56 checks on isolated DB + live HTTP; covers all 4 critical acceptance tests (Plumbing+Nsawam → Kwame appears; Accra plumber excluded; suspended plumber excluded; electrician excluded), pagination 13→10+3, dedupe, nearby fallback w/ distance bands, filters, sorting, privacy (no email/phone/coords), ownership/IDOR, analytics, 422 validation, SEO pages. Suite EXPOSED a real scoring flaw: renormalising weights over "available" components let an empty profile score 100% — fixed with neutral-fill (missing data scores 0.5 and keeps its weight).
+- Commit 4943add (E2E fixes): hydration-safe intent links (path read at click time), SheetDescription a11y, data-scroll-behavior, empty-state copy.
+- Docs: DISCOVERY.md (15 sections); ARCHITECTURE.md discovery section + roadmap; DATABASE.md 42-model map + DiscoveryEvent section; README updates (verify:phase4, structure).
+- Battery: lint 0; tsc 0; verify 48/48; verify:phase2 106/106; verify:phase3 73/106→73/73; verify:phase4 56/56 (283 total). Clean-DB test: rm dev.db → migrate deploy → seed → healthy → Nsawam landing renders Kwame.
+- Browser E2E (agent-browser): 17/17 steps — homepage search panel, Find nav, Plumbing+Eastern+Nsawam Municipal+Nsawam cascade, results, profile (areas/rating/availability), Request Service → /auth/sign-in?callbackUrl=/providers/<id>?intent=request-service, mobile 390 + tablet 768 no horizontal overflow, filters sheet, empty state, nearby section; zero console errors after fixes.
+
+Stage Summary:
+- PHASE 4 COMPLETE: nationwide discovery live — one engine behind all surfaces; hard filters + configurable ranking; service-area-based matching (never address text); clearly-labeled nearby tier; public discovery with auth-preserving action entries; privacy-safe payloads; SEO landings + sitemap; 283 checks green; clean migration proven.
+- Deliberate deferrals (per PART 50): job requests, quotations, messaging, payments, save-provider, advanced analytics dashboards — discovery is wired so PROVIDER PROFILE → REQUEST SERVICE → JOB REQUEST connects in Phase 5.
+- Project now at the PHASE 5 gate (Request Service / Job Requests / Messaging / Quotations). NOT started; awaiting project owner approval.
