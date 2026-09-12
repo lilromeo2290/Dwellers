@@ -45,3 +45,21 @@ Stage Summary:
 - GATE VERDICT: PASS WITH CONDITIONS.
 - Conditions before/inside Phase 2: (1) fix ~16 tsc errors incl. missing `import type { Role }` in permissions.ts and LogEventName in audit.ts, exclude examples//skills/ from tsconfig, then set ignoreBuildErrors:false; (2) git rm --cached .env; (3) env-conditional Prisma query logging; (4) JSON 404 catch-all for /api/*; (5) tighten phone regex to /^(?:\+233|0)[235]\d{8}$/.
 - All reported Phase 1 implementation VERIFIED to exist and behave. Ready for PHASE 2 upon approval.
+
+---
+Task ID: 3
+Agent: main (Super Z)
+Task: Deliver Phase 1 Gate Review as a formal PDF report
+
+Work Log:
+- Loaded pdf skill; read SKILL.md, configs/fonts.md, briefs/report.md and all referenced typesetting files (cover, palette, overflow, pagination, typography, fill-engine, cover-backgrounds, charts).
+- Generated cascade palette (seed 7, minimal mode) in reportlab + css formats.
+- Built cover per Template 01 (HUD): validated with poster_validate.py + cover_validate.js (fixed one text-overlap finding), rendered via html2poster.js --width 794px.
+- Built 16-page body via ReportLab: TocDocTemplate + multiBuild, chapter-only auto TOC, 14 palette-styled tables (Paragraph cells, proportional widths, repeatRows), stat callout rows, CondPageBreak orphan control, zone page numbering (TOC=i, body resets to 1) via per-pass ContentStartMarker.
+- Fixed during build: severity hex color bug; TOC spillover (tightened leading, then chapter-only entries); stale content-start marker; TOC now shows zone-relative page numbers.
+- Preflight: code.sanitize, meta.brand, font.check (0 issues), toc.check (pass), pages.clean (no blanks), pdf_qa (PASS with 8 accepted false-positive warnings from symmetric callout rows); forced cover scale to exact A4 after page-size mismatch finding.
+- Visual check: cover, TOC, chapter 1, issues register all render correctly.
+
+Stage Summary:
+- Delivered /home/z/my-project/download/Dwellers_Phase1_Gate_Review.pdf (17 pages) + cover-source.html + screenshots in download/gate-review/.
+- Report content: verdict PASS WITH CONDITIONS, 11 chapters, 10-issue register, 6-risk production register, Phase 2 readiness YES with opening sequence.
