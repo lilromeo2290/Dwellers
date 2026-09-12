@@ -207,3 +207,27 @@ Stage Summary:
 - PHASE 4 VERIFIED COMPLETE: all claims from Task 9 re-proven this session - 283/283 checks, 21/21 E2E steps, clean-database rebuild, Nsawam acceptance green on fresh data.
 - Delivered /home/z/my-project/download/Dwellers_Phase4_Nationwide_Discovery_Report.pdf (19 pages) + phase4-report-cover-source.html.
 - Project at the PHASE 5 gate (Request Service / Job Requests / Messaging / Quotations). NOT started; awaiting project owner approval.
+
+---
+Task ID: 11
+Agent: main (Super Z)
+Task: PHASE 5 — REQUEST SERVICE / JOB REQUESTS (86-part requirements, approved via "5")
+
+Work Log:
+- Interpreted the owner's "5" as Phase 5 approval after verifying Phase 4 was COMPLETE (worklog Tasks 9/10); located the full 86-part Phase 5 spec in upload/ (4 byte-identical copies, CRLF-normalised).
+- Audited the foundation first (per FINAL RULE): Phase 2 JobRequest model/service/API, storage abstraction + validation policies, notification service, BusinessMember, location hierarchy, dashboard shells, seed. Built on every seam; duplicated nothing.
+- Migration phase5_job_request_lifecycle: JobRequestEvent timeline model (append-only, tx-coupled), viewedAt/respondedAt/responseKind/urgency/clientToken (+unique) columns, attachments.uploadedById, providerId+status index. Clean deploy + seed proven.
+- Engine commit 98fb648: central state machine (actions-not-statuses, DECLINED terminal, staff read-only), lifecycle service (provider-service + location-hierarchy validation, idempotent clientToken creation, atomic transitions with events + notifications, attachment caps/ownership, VIEWED-once), 8 API endpoints incl. respond + authed attachment streaming. Audit +9 actions, notifications +2 types, analytics +7 event types, storage +job-attachment policy.
+- Frontend commit 4eb6e25: /request-service/[providerId] six-step wizard (progress indicator, honest out-of-area notice, server-confirmed navigation only), profile REQUEST SERVICE intent round-trip into the wizard, customer My Job Requests + detail (timeline/response/cancel-dialog), provider boards ×5 roles + respond panel (MEMBER read-only), nav/overview updates. Header breakpoint fix killed a real 768px overflow.
+- Tests commit 6a28997: scripts/verify-phase5.ts — 94 checks (state-machine rules, validation, idempotency, viewed-once/privacy, respond flows, cancel, attachment caps/IDOR, business OWNER/MANAGER/MEMBER, suspension guards, list scoping, audit/analytics integrity + live HTTP: 10 acceptance tests, PART 65 IDOR matrix, 429 flood, privacy sweeps). Seed: Raymond, Kwaku (business MEMBER), JR-DEMO002. Phase 2 fixture adapted to the stricter submit rules (title+location now required).
+- E2E found and fixed 4 real defects (commit e2dc074 evidence): provider board read the list envelope as an object (crash) → data IS the array; oversized uploads surfaced 500 → honest 413 via formData guard; photo GET returned a bare Response the factory wrapped as JSON → NextResponse passthrough; customer initials broke on "(Demo)" suffix. Also fixed the 768 header overflow.
+- Docs commit ce1854a: JOB_REQUESTS.md (11 sections); ARCHITECTURE/DATABASE/README updated (43-model map, §8.2, roadmap Phase 5 → Delivered).
+- Battery fresh-run: lint 0; tsc 0; verify 48/48; verify:phase2 106/106; verify:phase3 73/73; verify:phase4 56/56; verify:phase5 94/94 = 377/377. Environment repaired again (AUTH_SECRET regen + seed after rebuild).
+- Clean-DB test: rm custom.db → migrate deploy (5 migrations) → seed (16 regions / 12 users / 4 providers) → server healthy → verify:phase5 94/94 on the fresh DB → manual acceptance: SUBMITTED JR-Y3FCNUXU with full data. verify:phase3 73/73 on the same clean DB.
+- Browser E2E (agent-browser) 26/26 steps: Raymond → wizard (service/details/location/timing/photo/review) → submit → confirmation JR-N4MD8T6L → My Job Requests → detail; Kwame → Job Requests board → detail (photos visible, honest display name "Raymond A.") → respond INTERESTED with message; Raymond → sees response + status + real timeline. 390/768/1440 zero horizontal overflow (after header fix), zero console errors. CDP file-input quirk documented; upload proven via in-page DataTransfer against the same endpoint (201).
+- Report commit b2d5d54: cover (Template 01 HUD, palette family, cover_validate PASS after one 5px trim) + ReportLab body 14 pages → merged 15-page PDF; preflight: sanitize, font.check 0 issues, toc.check pass, meta.brand, pdf_qa WARN-only (accepted mirror-symmetric callout rows); visual QA cover/TOC/exec/results/last (last page filled with handover subsection).
+
+Stage Summary:
+- PHASE 5 COMPLETE: Request Service is a REAL workflow end to end — central state machine, idempotent submissions, atomic events+notifications, authorization-checked photos, business-member scoping, suspended-account guards — 377/377 checks, 26/26 E2E steps, clean-database rebuild green.
+- Deliberate deferrals per PART 81: quotations/payments, WhatsApp/SMS/email, full messaging UI, equipment rental, project management, AI, dashboards. Quote model untouched and ready.
+- Project at the PHASE 6 gate (Quotations). NOT started; awaiting project owner approval.
