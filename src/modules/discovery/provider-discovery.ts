@@ -718,15 +718,15 @@ function scoreCandidate(
     verification: verificationComponent,
   }
 
-  // Renormalise over AVAILABLE components — never fabricate missing data.
+  // Neutral-fill: components without real data score NEUTRAL (0.5) and keep
+  // their weight — missing information pulls toward the middle, never boosts
+  // an empty profile above a substantive one, and never fabricates data.
   let weighted = 0
-  let weightSum = 0
   for (const component of Object.values(components)) {
-    if (!component.available) continue
-    weighted += DISCOVERY_WEIGHTS[component.key] * component.score
-    weightSum += DISCOVERY_WEIGHTS[component.key]
+    const score = component.available ? component.score : NEUTRAL_COMPONENT_SCORE
+    weighted += DISCOVERY_WEIGHTS[component.key] * score
   }
-  const total = weightSum === 0 ? 0 : (weighted / weightSum) * 100
+  const total = weighted * 100
 
   return {
     candidate,

@@ -10,11 +10,12 @@
  * provider-discovery.ts. Scoring only RANKS providers that already passed.
  *
  * Honest-scoring rules (PART 7/13/15):
- *  - a component with no real data is marked "unavailable" and is EXCLUDED
- *    from the weighted sum (weights renormalise over present components) —
- *    never defaulted to a fabricated value;
- *  - ratings below RATING_MIN_COUNT are treated as "no rating yet" (neutral),
- *    so three angry friends cannot outrank a genuinely unrated professional;
+ *  - a component with no real data scores NEUTRAL (0.5) and keeps its weight:
+ *    missing information pulls a provider toward the middle of the ranking —
+ *    it never boosts an empty profile above a substantive one, and never
+ *    fabricates a rating, a response rate or availability;
+ *  - ratings below RATING_MIN_COUNT count as "no rating yet" (neutral), so
+ *    three angry friends cannot outrank a genuinely unrated professional;
  *  - the numeric score itself is internal — surfaces show plain-language
  *    reasons ("Serves your area", "Verified provider"), never the number.
  */
