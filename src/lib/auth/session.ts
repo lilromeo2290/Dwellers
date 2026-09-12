@@ -8,18 +8,21 @@
  * effect on the user's next token refresh, and sensitive actions re-check
  * the live database record (pattern documented in ARCHITECTURE.md).
  *
- * Phase 1 wires the configuration and the typed accessors. Concrete
- * credential/OAuth providers and the route handler land in Phase 2
- * (Database Schema & Backend Foundation) together with the user store.
+ * Phase 1 wired the configuration and the typed accessors. Phase 3 activates
+ * the credentials provider, the route handler and full session issuance.
  */
 import { getServerSession, type NextAuthOptions } from 'next-auth'
 import type { JWT } from 'next-auth/jwt'
 import { DEFAULT_ROLE, isRole, type Role } from '@/lib/auth/roles'
+import { dwellersCredentialsProvider } from '@/lib/auth/credentials'
+import { env } from '@/lib/env'
+import { AUDIT_ACTIONS, recordAudit } from '@/lib/audit'
 
 /** Extended claims carried inside the JWT. */
 export interface DwellersToken extends JWT {
   userId?: string
   role?: Role
+  status?: string
 }
 
 export interface AuthContext {
@@ -27,19 +30,22 @@ export interface AuthContext {
   email: string
   name?: string | null
   role: Role
+  /** Account status claim captured at sign-in (fast path; live re-checks happen in guards/services). */
+  status: string
 }
 
 /**
- * NextAuth configuration. `providers` is intentionally empty in Phase 1:
- * no sign-in flow exists yet, so no session can ever be forged. Phase 2
- * adds the credentials provider backed by the real User table.
+ * NextAuth configuration. Phase 3 activates the credentials provider backed
+ * by the real User table (src/lib/auth/credentials.ts — imported here so the
+ * heavy modules stay out of files that only need types).
  */
 export const authOptions: NextAuthOptions = {
+  secret: env.AUTH_SECRET,
   session: { strategy: 'jwt', maxAge: 7 * 24 * 60 * 60 },
   pages: {
-    signIn: '/auth/sign-in', // route delivered with the auth phase
+    signIn: '/auth/sign-in',
   },
-  providers: [], // Phase 2: CredentialsProvider (email + password against DB)
+  providers: [dwellersCredentialsProvider],
   callbacks: {
     async jwt({ token, user }) {
       if (user) {
@@ -47,6 +53,8 @@ export const authOptions: NextAuthOptions = {
         dwellersToken.userId = user.id
         const maybeRole = (user as { role?: string }).role
         dwellersToken.role = isRole(maybeRole) ? maybeRole : DEFAULT_ROLE
+        const maybeStatus = (user as { status?: string }).status
+        dwellersToken.status = maybeStatus ?? 'ACTIVE'
       }
       return token
     },
@@ -55,8 +63,24 @@ export const authOptions: NextAuthOptions = {
       if (session.user && dwellersToken.userId) {
         session.user.id = dwellersToken.userId
         session.user.role = isRole(dwellersToken.role) ? dwellersToken.role : DEFAULT_ROLE
+        session.user.status = dwellersToken.status ?? 'ACTIVE'
       }
       return session
+    },
+  },
+  events: {
+    /** Audit logout from the JWT claim (stateless sessions keep no server row). */
+    async signOut({ token }) {
+      const dwellersToken = token as DwellersToken
+      if (dwellersToken?.userId) {
+        await recordAudit({
+          actorId: dwellersToken.userId,
+          actorRole: isRole(dwellersToken.role) ? dwellersToken.role : DEFAULT_ROLE,
+          action: AUDIT_ACTIONS.USER_LOGOUT,
+          entityType: 'User',
+          entityId: dwellersToken.userId,
+        }).catch(() => undefined)
+      }
     },
   },
 }
@@ -66,6 +90,7 @@ declare module 'next-auth' {
     user?: {
       id?: string
       role?: Role
+      status?: string
       name?: string | null
       email?: string | null
     }
@@ -86,5 +111,14 @@ export async function getAuthContext(): Promise<AuthContext | null> {
     email: user.email,
     name: user.name ?? null,
     role: user.role ?? DEFAULT_ROLE,
+    status: user.status ?? 'ACTIVE',
   }
+}
+
+/**
+ * Page-guard helper: resolves the session for server components the same way
+ * route handlers do. Returns `null` when unauthenticated.
+ */
+export async function getPageAuthContext(): Promise<AuthContext | null> {
+  return getAuthContext()
 }

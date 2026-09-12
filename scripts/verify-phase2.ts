@@ -132,7 +132,7 @@ async function expectP2002(fn: () => Promise<unknown>): Promise<void> {
 }
 
 function authFor(userId: string, role: Role): AuthContext {
-  return { userId, email: `${role.toLowerCase()}@test.dwellers`, role }
+  return { userId, email: `${role.toLowerCase()}@test.dwellers`, role, status: 'ACTIVE' }
 }
 
 function parse<T extends z.ZodType>(schema: T, data: unknown): z.output<T> {

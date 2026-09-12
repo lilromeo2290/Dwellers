@@ -24,7 +24,7 @@
  */
 import { NextResponse, type NextRequest } from 'next/server'
 import type { z } from 'zod'
-import { AppError, RateLimitError, toPublicError } from '@/lib/errors'
+import { AppError, ForbiddenError, RateLimitError, toPublicError } from '@/lib/errors'
 import { jsonError, jsonOk } from '@/lib/api/response'
 import { parseJsonBody, validateBody, validateQuery } from '@/lib/api/validation'
 import {
@@ -127,6 +127,22 @@ export function createHandler<
         auth = await getAuthContext()
         if (!auth && authRequirement === 'required') {
           throw new AppError('UNAUTHORIZED', 401, 'Please sign in to continue.')
+        }
+        // PART 14: suspended/deactivated accounts never pass protected routes.
+        // The status claim is captured at sign-in; sensitive services and page
+        // guards additionally re-check the live database record.
+        if (auth && auth.status !== 'ACTIVE') {
+          logger.warn('Blocked request from non-active account', {
+            module: 'auth',
+            event: LogEvent.ACCESS_DENIED,
+            actorId: auth.userId,
+            status: auth.status,
+          })
+          throw new ForbiddenError(
+            auth.status === 'SUSPENDED'
+              ? 'This account has been suspended. Contact Dwellers support.'
+              : 'This account is no longer active.',
+          )
         }
       }
 
