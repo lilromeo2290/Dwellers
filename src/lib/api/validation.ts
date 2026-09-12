@@ -14,7 +14,7 @@ export const MAX_JSON_BODY_BYTES = 1024 * 1024
 export function validate<TSchema extends z.ZodType>(
   schema: TSchema,
   data: unknown,
-): z.infer<TSchema> {
+): z.output<TSchema> {
   const result = schema.safeParse(data)
   if (!result.success) {
     throw new ValidationError(result.error.flatten())
@@ -50,7 +50,7 @@ export async function parseJsonBody(
 export function validateBody<TSchema extends z.ZodType>(
   schema: TSchema,
   body: unknown,
-): z.infer<TSchema> {
+): z.output<TSchema> {
   if (body === undefined) {
     throw new BadRequestError('A JSON request body is required.')
   }
@@ -60,10 +60,10 @@ export function validateBody<TSchema extends z.ZodType>(
 export type QuerySchema = z.ZodType<Record<string, unknown>>
 
 /** Validates URL query parameters against a schema. */
-export function validateQuery<TSchema extends QuerySchema>(
+export function validateQuery<TSchema extends z.ZodType>(
   schema: TSchema,
   searchParams: URLSearchParams,
-): z.infer<TSchema> {
+): z.output<TSchema> {
   const raw: Record<string, string> = {}
   searchParams.forEach((value, key) => {
     raw[key] = value

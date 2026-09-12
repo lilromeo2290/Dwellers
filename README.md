@@ -8,9 +8,11 @@ providers.
 
 The long-term product journey: **Find → Compare → Connect → Quote → Buy → Build**.
 
-> **Current status: Phase 1 — Project Foundation, Architecture & Development
-> Standards.** Marketplace features are intentionally NOT built yet; this phase
-> delivers the professional technical foundation they will be built on.
+> **Current status: Phase 2 — Database Schema & Backend Foundation (complete).**
+> Phase 1 delivered the professional technical foundation; Phase 2 delivered
+> the full domain database (41 models), the nationwide Ghana location
+> hierarchy, the job-request/RFQ backbone and the first real API surface.
+> Marketplace UI features are intentionally NOT built yet.
 
 ---
 
@@ -32,14 +34,28 @@ The long-term product journey: **Find → Compare → Connect → Quote → Buy 
 
 ```
 ├── prisma/
-│   └── schema.prisma            # Foundation models (User, AuditLog) + conventions
+│   ├── schema.prisma            # Full domain model (41 models — see DATABASE.md)
+│   └── migrations/              # Reproducible migrations (never manual pushes)
 ├── scripts/
-│   └── verify-foundation.ts     # `bun run verify` — proves core foundations work
+│   ├── verify-foundation.ts     # `bun run verify` — Phase 1 core checks
+│   ├── verify-phase2.ts         # `bun run verify:phase2` — domain + security suite
+│   └── seed.ts                  # `bun run db:seed` — Ghana locations, taxonomy,
+│                                #   clearly-marked demo accounts/listings
 ├── src/
 │   ├── app/
 │   │   ├── api/                 # API routes (built on the shared handler factory)
 │   │   │   ├── route.ts         #   /api — index & conventions
-│   │   │   └── health/          #   /api/health — liveness + DB check
+│   │   │   ├── health/          #   /api/health — liveness + DB check
+│   │   │   ├── users/           #   /api/users(/me) — account self-service
+│   │   │   ├── businesses/      #   /api/businesses — company profiles
+│   │   │   ├── providers/       #   /api/providers — discovery search
+│   │   │   ├── categories/      #   /api/categories — taxonomy
+│   │   │   ├── locations/       #   /api/locations — Region→District→Town→Community
+│   │   │   ├── services/        #   /api/services — service listings
+│   │   │   ├── products/        #   /api/products — product listings
+│   │   │   ├── equipment/       #   /api/equipment — equipment listings
+│   │   │   ├── job-requests/    #   /api/job-requests — RFQ lifecycle
+│   │   │   └── [...path]/       #   JSON 404 catch-all (API envelope)
 │   │   ├── layout.tsx           # Root layout, metadata, fonts
 │   │   ├── page.tsx             # Brand foundation landing
 │   │   └── globals.css          # Design tokens (Dwellers palette)
@@ -50,26 +66,29 @@ The long-term product journey: **Find → Compare → Connect → Quote → Buy 
 │   ├── config/                  # Brand + navigation constants (client-safe)
 │   ├── lib/
 │   │   ├── api/                 # API conventions: handler factory, envelope,
-│   │   │                        #   pagination, validation
+│   │   │                        #   pagination, validation, shared schemas
 │   │   ├── auth/                # RBAC engine: roles, permissions, guards,
-│   │   │                        #   session, password hashing
+│   │   │                        #   session, password hashing, ownership (IDOR)
 │   │   ├── storage/             # Upload policies + storage provider interface
 │   │   ├── constants/           # Ghana geo reference data
 │   │   ├── audit.ts             # Append-only audit trail service
-│   │   ├── db.ts                # Prisma client singleton
+│   │   ├── db.ts                # Prisma client singleton (dev-only query logging)
 │   │   ├── env.ts               # zod-validated environment configuration
 │   │   ├── errors.ts            # AppError hierarchy + safe error mapping
-│   │   ├── finance.ts           # GH₵ money helpers (integer pesewas)
+│   │   ├── finance.ts           # GH₵ money helpers + rounding/division policy
 │   │   ├── logger.ts            # Structured, redacting logger + event names
-│   │   └── rate-limit.ts        # In-memory rate limiter + policies
-│   ├── modules/                 # Domain module charters (identity, marketplace,
-│   │                            #   discovery, projects, communication, commerce,
-│   │                            #   trust, admin) — one README per module
+│   │   ├── rate-limit.ts        # Hardened rate limiter + trusted-proxy client IP
+│   │   └── utils.ts             # slugify, reference generation
+│   ├── modules/                 # Domain modules (identity, marketplace, discovery,
+│   │                            #   projects, …) — charters + zod schemas + services
 │   ├── proxy.ts                 # Network layer: security headers, request IDs,
 │   │                            #   coarse API rate limiting (Next 16 proxy)
 │   └── types/                   # Shared API contract types
 ├── .env.example                 # Environment template (never real secrets)
 ├── ARCHITECTURE.md              # Technical architecture & decisions
+├── DATABASE.md                  # Database guide: entities, locations, service
+│                                #   areas, RFQ/quote/project/messaging/payment
+│                                #   architecture, authorization, migrations, seed
 └── README.md
 ```
 
@@ -102,30 +121,35 @@ platform's secret manager.
 bun run dev        # http://localhost:3000
 ```
 
-### Verify the foundation
+### Verify the foundations
 
 ```bash
-bun run verify     # 48 checks across RBAC, errors, pagination, storage,
-                   # passwords, money and Ghana reference data
+bun run verify           # 48 checks — RBAC, errors, pagination, storage,
+                         # passwords, money, Ghana reference data
+bun run verify:phase2    # 106 checks — domain entities, ownership/IDOR,
+                         # money policy, phone validation, storage streaming,
+                         # rate limiter, client IP (isolated test database)
 ```
 
-### Lint
+### Lint & types
 
 ```bash
 bun run lint
+bunx tsc --noEmit        # must pass — ignoreBuildErrors is false
 ```
 
 ### Database
 
 ```bash
-bun run db:push        # sync schema (development workflow)
-bun run db:generate    # regenerate the Prisma client
-bun run db:migrate     # create/apply a migration (team workflow)
+bun run db:migrate          # create/apply a migration (team workflow)
+bun run db:migrate:deploy   # apply migrations without prompts (CI/production)
+bun run db:seed             # seed Ghana locations, taxonomy, demo data
+bun run db:generate         # regenerate the Prisma client
+bun run db:push             # (dev shortcut only — prefer migrations)
 ```
 
-The SQLite file lives at `db/custom.db` (gitignored). See `.env.example` for
-the PostgreSQL connection format used when the platform moves to a managed
-database.
+The SQLite file lives at `db/custom.db` (gitignored). See **DATABASE.md** for
+the full data model and the PostgreSQL migration procedure.
 
 ### Build for production
 
@@ -181,15 +205,21 @@ Never: `update`, `changes`, `test`, `stuff`.
 - **Foundation checks** — `bun run verify` exercises the security-critical
   pure layers (RBAC, escalation rules, error mapping, upload policies,
   password hashing, money).
-- **Lint** — `bun run lint` keeps Next.js rules enforced.
-- **Unit/integration tests** — arrive with Phase 2 backend features
-  (Vitest recommended; the architecture keeps business logic pure and
-  testable by design: no framework coupling inside `src/lib`).
+- **Phase 2 suite** — `bun run verify:phase2` builds an isolated database
+  from the migrations and tests every domain entity: creation, validation,
+  relationships, authorization, ownership/IDOR denials, duplicate records,
+  pagination, money policy, phone validation, storage streaming/traversal,
+  rate-limiter eviction and trusted-proxy IP extraction.
+- **Lint + strict types** — `bun run lint` and `tsc --noEmit` with
+  `noImplicitAny` on; the build fails on type errors.
 - **API contract** — every route uses the shared handler factory, so
   envelope/status conventions are enforced structurally, not by review.
 
 ## Where to read next
 
+- **[DATABASE.md](./DATABASE.md)** — the data model: entities, relationships,
+  Ghana location hierarchy, service areas, job-request/quote/project/messaging
+  architecture, authorization model, migrations, seed and PostgreSQL readiness.
 - **[ARCHITECTURE.md](./ARCHITECTURE.md)** — how the system is designed and
   why: module map, API conventions, security model, database principles,
   Ghana geography model, performance strategy and the delivery roadmap.

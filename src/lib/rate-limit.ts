@@ -42,6 +42,11 @@ const buckets = new Map<string, Bucket>()
 /** Hard cap on tracked buckets — bounds memory under unique-key floods. */
 export const MAX_TRACKED_BUCKETS = 10_000
 
+/** Current tracked-bucket count (observability + verification tests). */
+export function bucketCount(): number {
+  return buckets.size
+}
+
 function evictIfNeeded(now: number): void {
   if (buckets.size < MAX_TRACKED_BUCKETS) return
 

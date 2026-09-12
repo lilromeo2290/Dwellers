@@ -1,0 +1,28 @@
+/**
+ * Dwellers — Job requests (RFQ) — the core Dwellers flow.
+ *   POST /api/job-requests — customers file a request (draft or direct submit)
+ *   GET  /api/job-requests — customers see own; providers see targeted; staff see all
+ */
+import { createHandler } from '@/lib/api/handler'
+import { jsonCreated, jsonOk } from '@/lib/api/response'
+import { buildMeta } from '@/lib/api/pagination'
+import {
+  createJobRequest,
+  createJobRequestSchema,
+  jobRequestListQuerySchema,
+  listJobRequests,
+} from '@/modules/projects/job-request-service'
+
+export const POST = createHandler(
+  { auth: 'required', permission: 'projects:create', bodySchema: createJobRequestSchema },
+  async ({ auth, body, requestId }) =>
+    jsonCreated(await createJobRequest(auth, body), { requestId }),
+)
+
+export const GET = createHandler(
+  { auth: 'required', querySchema: jobRequestListQuerySchema },
+  async ({ auth, query }) => {
+    const { items, total } = await listJobRequests(auth, query)
+    return jsonOk(items, { meta: buildMeta(total, query.page, query.pageSize) })
+  },
+)

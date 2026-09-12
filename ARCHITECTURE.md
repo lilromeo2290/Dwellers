@@ -3,8 +3,8 @@
 **Find. Buy. Build.** — Ghana's digital construction marketplace.
 
 This document records the technical architecture and the decisions behind it
-as of **Phase 1 (Foundation & Standards)**. It is a living document: every
-phase appends decisions with their rationale.
+as of **Phase 2 (Database Schema & Backend Foundation)**. It is a living
+document: every phase appends decisions with their rationale.
 
 ---
 
@@ -228,27 +228,55 @@ Every model follows (`prisma/schema.prisma`):
 - Lifecycle as `status` strings validated at the application boundary
   (SQLite has no native enums; PostgreSQL migration can promote them).
 - **Money is integer minor units (pesewas)** — `lib/finance.ts` is the only
-  converter/formatter; floats never touch amounts.
-- Indexes on every lookup/ordering column (see `User`, `AuditLog`);
-  unique constraints on natural keys (e.g. `User.email`).
-- No data duplication without a recompute path (e.g. rating aggregates are
-  derived and cacheable).
+  converter/formatter; floats never touch amounts. Rounding is ROUND_HALF_UP;
+  splits use largest-remainder allocation with the remainder going to the
+  first party — never ad-hoc division.
+- **Quantities are integer thousandths** (`quantityMilli = qty × 1000`) —
+  the SQLite connector has no `Decimal` type, and floats are unsafe everywhere.
+- Indexes on query-pattern columns only (see DATABASE.md § Indexing strategy);
+  unique constraints on natural keys (`User.email`, `User.phone`, business
+  `slug`, `Order.orderNumber`, quote numbers, payment refs, service-area pairs).
+- Statuses are string columns validated at the zod boundary — PostgreSQL
+  compatible by design.
 
-**Phase 1 schema** (foundation only, per phase scope):
-`User` (role/status/soft-delete/verification-ready) and `AuditLog`
-(actor, action, entity, metadata, ip, user-agent, indexed).
+**Phase 2 schema** (the full domain model — see DATABASE.md for the tour):
+41 models covering identity (User, PersonalProfile), businesses (Business,
+BusinessMember), providers (ProviderProfile), the nationwide Ghana location
+hierarchy (Region → District → Town → CommunityArea with lat/lng), service
+areas (three join tables answering "who serves Nsawam?"), taxonomy
+(Category tree, MeasurementUnit), listings (Service, Product, Equipment with
+image children), the RFQ backbone (JobRequest + attachments), quotations
+(Quote, QuoteItem), projects (Project, ProjectTask, ProjectMilestone),
+messaging (Conversation, ConversationParticipant, Message, MessageRead,
+MessageAttachment), trust (Notification, Review, Verification), portfolio,
+favorites, commerce (Order + OrderItem with historical price snapshots,
+gateway-agnostic Payment) and the append-only AuditLog.
 
 ### Ghana geography model
 
-All location-aware features use one hierarchy:
+All location-aware features use one database-backed hierarchy:
 
 ```
-Region (16, ISO 3166-2:GH) → City/Town → Area
+Region (16, ISO 3166-2:GH) → District (MMDA) → Town/City → CommunityArea
 ```
 
-Reference constants live in `lib/constants/ghana.ts`; the authoritative
-queryable tables (seeded) arrive in Phase 2. Features must never hard-code
-cities — Greater Accra is simply the first entry, not the only one.
+Every level is a table with slug, coordinates where available and `isActive`;
+reference data is seeded (`scripts/seed.ts`) and extended data-driven —
+features must never hard-code cities. Town rows denormalise `regionId` so
+region-wide sweeps never need a join. Service areas are deliberately separate
+from where a provider lives (see DATABASE.md §6.2): a provider based in
+Nsawam can serve Nsawam, Adoagyiri, Suhum and more, each as its own indexed
+join row — this is what later answers "which plumbers serve Nsawam?".
+
+### Client IP & trusted proxies
+
+Forwarded headers are trusted ONLY when `TRUST_PROXY_ENABLED=true` (a
+deployment behind infrastructure we control). With `TRUSTED_PROXY_HOPS=N`,
+the client IP is the entry at position `length − N` of `X-Forwarded-For` —
+the peer observed by the first trusted proxy. Direct deployments (trust off)
+ignore forwarded headers entirely and record `direct`, so a client can never
+forge its source IP. `getClientIp` in `lib/rate-limit.ts` is the single
+extraction point (rate limiter + audit both use it).
 
 ## 9. File management
 
@@ -282,11 +310,11 @@ control for private objects is enforced by the API routes that serve them.
 
 | Phase | Scope | Status |
 | ----- | ----- | ------ |
-| **Phase 1** | Foundation, architecture & standards (this document) | **Current** |
-| **Phase 2** | Database schema & backend foundation (full domain model, auth endpoints) | Next — awaiting instruction |
-| Phase 3 | Marketplace & discovery features | Indicative |
-| Phase 4+ | Projects, commerce, communication, trust | Indicative |
+| **Phase 1** | Foundation, architecture & standards | **Complete** (gate: PASS WITH CONDITIONS) |
+| **Phase 2** | Database schema & backend foundation (full domain model, first API surface, remediation) | **Complete** |
+| Phase 3 | Authentication, registration & role-based dashboards | Next — awaiting owner approval |
+| Phase 4+ | Marketplace UI, commerce, communication, trust features | Indicative |
 
 Phase sequencing beyond Phase 2 is indicative and confirmed per product
-priorities. **The project does not proceed to Phase 2 without explicit
+priorities. **The project does not proceed to Phase 3 without explicit
 instruction.**

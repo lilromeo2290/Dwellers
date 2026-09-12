@@ -9,9 +9,12 @@
     "start": "NODE_ENV=production bun .next/standalone/server.js 2>&1 | tee server.log",
     "lint": "eslint .",
     "verify": "bun scripts/verify-foundation.ts",
+    "verify:phase2": "bun scripts/verify-phase2.ts",
+    "db:seed": "bun scripts/seed.ts",
     "db:push": "prisma db push --accept-data-loss",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
+    "db:migrate:deploy": "prisma migrate deploy",
     "db:reset": "prisma migrate reset"
   },
   "dependencies": {

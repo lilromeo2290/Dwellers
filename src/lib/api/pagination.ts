@@ -6,7 +6,7 @@
  * `PaginationMeta` object so clients never have to guess.
  */
 import { z } from 'zod'
-import type { PaginationMeta } from '@/types/api'
+import type { PaginationMeta, ResponseMeta } from '@/types/api'
 
 export const MAX_PAGE_SIZE = 100
 export const DEFAULT_PAGE_SIZE = 20
@@ -56,4 +56,14 @@ export function buildPaginationMeta(total: number, page: number, pageSize: numbe
     hasNextPage: page < totalPages,
     hasPreviousPage: page > 1 && total > 0,
   }
+}
+
+/** ResponseMeta wrapper carrying pagination for list endpoints. */
+export function buildMeta(total: number, page: number, pageSize: number): ResponseMeta {
+  return { pagination: buildPaginationMeta(total, page, pageSize) }
+}
+
+/** Prisma skip/take derived from a validated pagination query. */
+export function skipTake(query: { page: number; pageSize: number }): { skip: number; take: number } {
+  return { skip: (query.page - 1) * query.pageSize, take: query.pageSize }
 }

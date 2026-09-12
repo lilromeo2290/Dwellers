@@ -10,9 +10,15 @@
  *  - centralised logging (request lifecycle + access denials)
  *  - safe errors: unknown failures become opaque 500s; nothing internal leaks
  *
- * Example (Phase 2+ route):
+ * Type model: the generic parameters are the SCHEMA types themselves (not
+ * their outputs), so `body`/`query` resolve through z.output<Schema> —
+ * sound by construction. When a schema is absent the corresponding context
+ * field is `undefined`, and a handler that tries to use it fails to compile.
+ * Handlers that need a body MUST declare bodySchema.
+ *
+ * Example (Phase 2 route):
  *   export const GET = createHandler(
- *     { auth: 'required', permission: 'projects:manage', query: listQuerySchema },
+ *     { auth: 'required', permission: 'projects:manage', querySchema: listQuerySchema },
  *     async ({ query, auth }) => jsonOk(await listProjects(query, auth)),
  *   )
  */
@@ -20,49 +26,70 @@ import { NextResponse, type NextRequest } from 'next/server'
 import type { z } from 'zod'
 import { AppError, RateLimitError, toPublicError } from '@/lib/errors'
 import { jsonError, jsonOk } from '@/lib/api/response'
-import { parseJsonBody, validate, validateBody, validateQuery } from '@/lib/api/validation'
-import { checkRateLimit, getClientIp, RateLimitPresets, type RateLimitPolicy } from '@/lib/rate-limit'
+import { parseJsonBody, validateBody, validateQuery } from '@/lib/api/validation'
+import {
+  checkRateLimit,
+  getClientIp,
+  RateLimitPresets,
+  type RateLimitPolicy,
+} from '@/lib/rate-limit'
 import { getAuthContext, type AuthContext } from '@/lib/auth/session'
 import { requirePermission } from '@/lib/auth/guards'
 import { LogEvent, logger } from '@/lib/logger'
 
 export type AuthRequirement = 'public' | 'optional' | 'required'
+export type RateLimitOption = RateLimitPolicy | keyof typeof RateLimitPresets
 
-export interface HandlerConfig<TBody, TQuery> {
+export interface HandlerConfig<TBodySchema, TQuerySchema> {
   /** Access requirement — defaults to 'public'. */
   auth?: AuthRequirement
   /** Permission checked against the caller's role when set (implies required auth). */
   permission?: string
-  /** Rate-limit policy override; sensible default applied per auth type. */
-  rateLimit?: RateLimitPolicy
+  /** Rate-limit policy or preset name; sensible default applied per auth type. */
+  rateLimit?: RateLimitOption
   /** Zod schema for the JSON body. */
-  bodySchema?: z.ZodType<TBody>
+  bodySchema?: TBodySchema
   /** Zod schema for URL query parameters. */
-  querySchema?: z.ZodType<TQuery>
+  querySchema?: TQuerySchema
 }
 
 export interface HandlerContext<TBody, TQuery> {
   request: NextRequest
   /** Dynamic route params, e.g. { id: '...' } for /api/x/[id]. */
   params: Record<string, string>
+  /** Parsed body when bodySchema is configured; otherwise undefined. */
   body: TBody
+  /** Parsed query when querySchema is configured; otherwise Record<string, string>. */
   query: TQuery
   auth: AuthContext | null
   requestId: string
 }
 
-type HandlerFunction<TBody, TQuery, TResult> = (
-  context: HandlerContext<TBody, TQuery>,
-) => Promise<TResult>
+function resolvePolicy(option: RateLimitOption | undefined): RateLimitPolicy {
+  if (!option) return RateLimitPresets.standard
+  if (typeof option === 'string') return RateLimitPresets[option]
+  return option
+}
 
 type RouteHandler = (
   request: NextRequest,
   routeContext: { params?: Promise<Record<string, string>> },
 ) => Promise<NextResponse>
 
-export function createHandler<TBody = unknown, TQuery = Record<string, string>, TResult = unknown>(
-  config: HandlerConfig<TBody, TQuery>,
-  handler: HandlerFunction<TBody, TQuery, TResult>,
+export function createHandler<
+  TBodySchema extends z.ZodType | undefined = undefined,
+  TQuerySchema extends z.ZodType | undefined = undefined,
+  TResult = unknown,
+>(
+  config: HandlerConfig<TBodySchema, TQuerySchema>,
+  handler: (context: {
+    request: NextRequest
+    params: Record<string, string>
+    body: TBodySchema extends z.ZodType ? z.output<TBodySchema> : undefined
+    query: TQuerySchema extends z.ZodType ? z.output<TQuerySchema> : Record<string, string>
+    auth: AuthContext | null
+    requestId: string
+  }) => Promise<TResult>,
 ): RouteHandler {
   return async (request, routeContext) => {
     const requestId = crypto.randomUUID()
@@ -72,9 +99,7 @@ export function createHandler<TBody = unknown, TQuery = Record<string, string>, 
 
     try {
       // 1. Rate limiting -------------------------------------------------------
-      const policy =
-        config.rateLimit ??
-        (config.permission ? RateLimitPresets.standard : RateLimitPresets.standard)
+      const policy = resolvePolicy(config.rateLimit)
       const bucket = `${getClientIp(request)}:${route}`
       const limit = checkRateLimit(bucket, policy)
       if (!limit.allowed) {
@@ -94,7 +119,9 @@ export function createHandler<TBody = unknown, TQuery = Record<string, string>, 
       }
 
       // 2. Authentication ------------------------------------------------------
-      const authRequirement: AuthRequirement = config.permission ? 'required' : config.auth ?? 'public'
+      const authRequirement: AuthRequirement = config.permission
+        ? 'required'
+        : config.auth ?? 'public'
       let auth: AuthContext | null = null
       if (authRequirement !== 'public') {
         auth = await getAuthContext()
@@ -110,26 +137,24 @@ export function createHandler<TBody = unknown, TQuery = Record<string, string>, 
 
       // 4. Input validation ----------------------------------------------------
       const params = routeContext?.params ? await routeContext.params : {}
-      const body = config.bodySchema
+      const rawBody = config.bodySchema
         ? validateBody(config.bodySchema, await parseJsonBody(request))
         : undefined
-      const query = config.querySchema
-        ? validateQuery(config.querySchema as z.ZodType<Record<string, unknown>>, url.searchParams)
-        : (Object.fromEntries(url.searchParams) as TQuery)
+      const rawQuery = config.querySchema
+        ? validateQuery(config.querySchema, url.searchParams)
+        : Object.fromEntries(url.searchParams)
 
       // 5. Business logic ------------------------------------------------------
-      // Factory invariant: when `bodySchema`/`querySchema` are configured the
-      // corresponding values below are their parsed outputs; when absent, the
-      // generic defaults to a type that accepts `undefined`. Handlers that
-      // need a body MUST declare bodySchema.
+      // Factory invariant: the conditional types above are DERIVED from the
+      // configured schemas, so the raw values below match them exactly.
       const result = await handler({
         request,
         params,
-        body: body as TBody,
-        query: query as TQuery,
+        body: rawBody,
+        query: rawQuery,
         auth,
         requestId,
-      })
+      } as Parameters<typeof handler>[0])
 
       // Handler returned a ready-made NextResponse (streaming/override cases).
       if (result instanceof NextResponse) {
@@ -155,7 +180,11 @@ export function errorResponse(
 
   if (publicError instanceof AppError && !publicError.isOperational) {
     log.error('Unhandled request failure', error, { requestId })
-  } else if (publicError instanceof AppError && publicError.status >= 400 && publicError.status < 500) {
+  } else if (
+    publicError instanceof AppError &&
+    publicError.status >= 400 &&
+    publicError.status < 500
+  ) {
     log.info('Request rejected', {
       requestId,
       code: publicError.code,
