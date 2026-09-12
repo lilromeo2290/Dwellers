@@ -122,3 +122,25 @@ Stage Summary:
 - Dwellers is live on GitHub at https://github.com/lilromeo2290/Dwellers (main, 13 commits).
 - PAT stored only in local .git/config (never committed); user advised they may revoke it.
 - Project remains at the Phase 3 gate (auth, registration, role dashboards) awaiting owner approval.
+
+---
+Task ID: 7
+Agent: main (Super Z)
+Task: PHASE 3 — AUTHENTICATION, REGISTRATION, ONBOARDING & ROLE-BASED DASHBOARDS (54-part requirements file)
+
+Work Log:
+- PART 1 survey: auth seam was authOptions.providers=[] (Phase 1), guards/RBAC/ownership/password/audit all ready; no schema change needed except Business.offersDelivery (migration phase3_business_offers_delivery).
+- Auth core (6b354a0): session JWT now carries userId+role+status; credentials provider with email/phone identifier, scrypt verify, status gate (SUSPENDED/DEACTIVATED error codes); NextAuth route with POST rate limit; registerDwellersAccount path-based role assignment (6 paths, staff unreachable), transactional User+Profile+Provider/Business creation, anti-enumeration duplicates, canonical +233 phones, welcome/completion notifications; password change with current-password verify; profile bundle + completion; provider/business self-profile + service-area replacement; avatar upload (SVG blocked); notifications module; handler factory gained LIVE account-status re-check per authed request (immediate mid-session suspension).
+- Frontend (270f7ee): sign-in (server-mapped error codes), register entry (6 journeys), parameterised wizard (account -> details -> location/service areas; trades live from category tree; cascade with NO defaults), /dashboard server-side role redirect, requireDashboardPage guards (session + live DB + role), 7 role dashboards with honest coming-soon placeholders, profile/settings/notifications/service-areas/verification pages, admin overview+users+audit, 403 page, header CTAs.
+- Tests: scripts/verify-phase3.ts (verify:phase3) — 73 checks: 6 registration paths, escalation/weak-password/phone validation, login outcomes incl. suspended, password change, profile completion, self-profile ownership, notifications IDOR, rate limiting, audit, LIVE HTTP (real NextAuth CSRF login, session claims, password rotation, mid-session suspension -> 403, logout, cleanup).
+- E2E fixes (8b266fb): LocationCascade array unwrap; customer overview asChild double-child crash; polish (notifications greeting, landing badge).
+- PART 46 clean-db test: dev DB deleted -> migrate deploy -> seed -> server up -> verify:phase3 73/73 against fresh DB.
+- PART 52 battery: lint 0 problems; tsc --noEmit 0 errors; verify 48/48; verify:phase2 106/106; verify:phase3 73/73.
+- Browser E2E (PART 48): 16/16 steps PASS (customer + artisan registration, login, dashboards, logout, unauthorized /admin + /customer -> 403, profile edit persist, mobile 390px + tablet 768px no overflow, sheet nav) — zero console errors. Screenshots in /tmp/e2e/.
+- Docs (69161cf): AUTHENTICATION.md (new, 10 sections); README/ARCHITECTURE/DATABASE updated.
+- Pushed 6 commits to github.com/lilromeo2290/Dwellers (f28f850..69161cf).
+
+Stage Summary:
+- PHASE 3 COMPLETE: real authentication live; 6 registration journeys; server-side role assignment + live status enforcement; 7 role dashboards; 227 total checks green (48+106+73); clean-database rebuild proven; browser-verified desktop+mobile.
+- Deliberate deferrals: session revocation after password change (JWT until expiry), password reset (needs delivery channel), BusinessMember granularity, community-level location FK.
+- Project now at PHASE 4 gate (Find / Nationwide Discovery). NOT started; awaiting project owner approval.
