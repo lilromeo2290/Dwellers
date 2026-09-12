@@ -1,6 +1,6 @@
 /**
- * Dwellers — Site header (foundation landing).
- * Mobile-first: collapsed anchor nav on small screens via horizontal scroll.
+ * Dwellers — Site header. Mobile-first: "Find" is the primary product entry
+ * point (PART 2), remaining items anchor into the landing story.
  */
 import Link from 'next/link'
 import { BrandMark } from '@/components/layout/brand-mark'
@@ -24,19 +24,19 @@ export function SiteHeader() {
 
         <nav aria-label="Primary" className="hidden items-center gap-1 md:flex">
           {NAVIGATION_ITEMS.map((item) => (
-            <a
+            <Link
               key={item.href}
               href={item.href}
               className="rounded-md px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
             >
               {item.label}
-            </a>
+            </Link>
           ))}
         </nav>
 
         <div className="flex items-center gap-2">
           <Badge variant="outline" className="hidden border-accent/60 bg-accent/15 text-accent-foreground sm:inline-flex">
-            Phase 3 · Accounts &amp; Dashboards
+            Phase 4 · Nationwide Discovery
           </Badge>
           <a
             href="/auth/sign-in"
@@ -57,13 +57,13 @@ export function SiteHeader() {
       <nav aria-label="Section" className="border-t border-border/60 md:hidden">
         <div className="flex gap-1 overflow-x-auto px-4 py-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {NAVIGATION_ITEMS.map((item) => (
-            <a
+            <Link
               key={item.href}
               href={item.href}
               className="whitespace-nowrap rounded-md px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-secondary hover:text-foreground"
             >
               {item.label}
-            </a>
+            </Link>
           ))}
         </div>
       </nav>
