@@ -1,7 +1,9 @@
 /**
  * Dwellers — Single job request.
- *   GET   — owner customer, targeted provider or staff (foreign probes → 404)
- *   PATCH — owner: edit draft / submit / cancel
+ *   GET   — owner customer, targeted provider side or staff (foreign probes → 404).
+ *           The provider side's first open records the real VIEWED event.
+ *   PATCH — the owning customer only: edit while DRAFT / submit / cancel.
+ *           The client submits an ACTION — never a status (PART 24/74).
  */
 import { createHandler } from '@/lib/api/handler'
 import { jsonOk } from '@/lib/api/response'
@@ -20,6 +22,6 @@ export const GET = createHandler({ auth: 'required' }, async ({ auth, params }) 
 
 export const PATCH = createHandler(
   { auth: 'required', bodySchema: updateJobRequestSchema },
-  async ({ auth, body, params }) =>
-    jsonOk(await updateJobRequest(auth, idSchema.parse(params.id), body)),
+  async ({ auth, body, params, requestId }) =>
+    jsonOk(await updateJobRequest(auth, idSchema.parse(params.id), body), { requestId }),
 )

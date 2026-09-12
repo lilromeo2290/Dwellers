@@ -16,6 +16,7 @@ export const STORAGE_CATEGORIES = [
   'document',
   'quote-attachment',
   'message-attachment',
+  'job-attachment',
 ] as const
 
 export type StorageCategory = (typeof STORAGE_CATEGORIES)[number]

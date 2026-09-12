@@ -623,10 +623,15 @@ model JobRequest {
   currency           String    @default("GHS")
   preferredDate      DateTime?
   preferredTimeSlot  String? // MORNING | AFTERNOON | EVENING | FLEXIBLE
+  urgency            String? // NORMAL | URGENT | EMERGENCY — the customer's stated urgency
   status             String    @default("DRAFT")
   submittedAt        DateTime?
+  viewedAt           DateTime? // first time the targeted provider opened the request
+  respondedAt        DateTime?
+  responseKind       String? // INTERESTED | DECLINED | NEEDS_INFO — latest provider response
   cancelledAt        DateTime?
   cancellationReason String?
+  clientToken        String? // browser-generated idempotency key — a retry never duplicates a request
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
 
@@ -641,15 +646,42 @@ model JobRequest {
   reviews       Review[]
   conversations Conversation[]         @relation("ConversationJobRequest")
   payments      Payment[]
+  events        JobRequestEvent[]
 
+  @@unique([clientToken])
   @@index([customerId])
   @@index([status])
   @@index([categoryId])
   @@index([serviceId])
   @@index([locationId])
   @@index([providerId])
+  @@index([providerId, status])
   @@index([createdAt])
   @@map("job_requests")
+}
+
+/// Append-only lifecycle event powering the request timeline (PART 45):
+/// real transitions only — created, submitted, viewed, edited, attachments,
+/// provider responses, cancellation. Written inside the SAME transaction as
+/// the state change it describes; the UI never fabricates timeline entries.
+/// Private to the request parties — never rendered publicly (PART 49).
+model JobRequestEvent {
+  id           String   @id @default(cuid())
+  jobRequestId String
+  /// CREATED | SUBMITTED | VIEWED | EDITED | ATTACHMENT_ADDED |
+  /// ATTACHMENT_REMOVED | RESPONSE_INTERESTED | RESPONSE_DECLINED |
+  /// RESPONSE_INFO_REQUESTED | CANCELLED
+  eventType    String
+  actorId      String? // null = system
+  actorRole    String?
+  /// Provider response message / cancellation reason (plain text, validated).
+  message      String?
+  createdAt    DateTime @default(now())
+
+  jobRequest JobRequest @relation(fields: [jobRequestId], references: [id], onDelete: Cascade)
+
+  @@index([jobRequestId, createdAt])
+  @@map("job_request_events")
 }
 
 /// Photo/video/document attached to a job request (storage keys only —
@@ -661,7 +693,8 @@ model JobRequestAttachment {
   originalName String?
   mimeType     String?
   sizeBytes    Int?
-  kind         String   @default("DOCUMENT") // PHOTO | VIDEO | DOCUMENT
+  kind         String   @default("PHOTO") // PHOTO | VIDEO | DOCUMENT
+  uploadedById String? // customer who added it (ownership/audit trail)
   createdAt    DateTime @default(now())
 
   jobRequest JobRequest @relation(fields: [jobRequestId], references: [id], onDelete: Cascade)

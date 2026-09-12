@@ -172,6 +172,15 @@ export const DISCOVERY_EVENT_TYPES = [
   'filter_used',
   'provider_contact_clicked',
   'request_service_clicked',
+  // Phase 5 (PART 60) — request funnel, logged through the SAME privacy-safe
+  // pipeline (IDs only, no user identifiers, no free text).
+  'request_started',
+  'request_step_completed',
+  'request_attachment_added',
+  'request_submitted',
+  'request_cancelled',
+  'provider_request_viewed',
+  'provider_response',
 ] as const
 
 export type DiscoveryEventType = (typeof DISCOVERY_EVENT_TYPES)[number]

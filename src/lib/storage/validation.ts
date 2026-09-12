@@ -29,6 +29,13 @@ export const UPLOAD_POLICIES: Record<StorageCategory, UploadPolicy> = {
   'document': { label: 'Document', allowedMime: ['application/pdf', 'image/jpeg', 'image/png'], maxBytes: 20 * MB },
   'quote-attachment': { label: 'Quotation attachment', allowedMime: ['application/pdf', 'image/jpeg', 'image/png', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'], maxBytes: 10 * MB },
   'message-attachment': { label: 'Message attachment', allowedMime: ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'], maxBytes: 10 * MB },
+  'job-attachment': {
+    label: 'Job photo',
+    allowedMime: ['image/jpeg', 'image/png', 'image/webp'],
+    // PART 11/13 — job photos only (the documented cases are photos of the
+    // problem/site). PDFs belong to the quote-attachment phase.
+    maxBytes: 10 * MB,
+  },
 }
 
 export interface UploadCandidate {

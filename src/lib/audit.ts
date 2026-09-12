@@ -60,6 +60,11 @@ export const AUDIT_ACTIONS = {
   JOB_REQUEST_CREATED: 'job.request_created',
   JOB_REQUEST_SUBMITTED: 'job.request_submitted',
   JOB_REQUEST_UPDATED: 'job.request_updated',
+  JOB_REQUEST_VIEWED: 'job.request_viewed',
+  JOB_REQUEST_RESPONDED: 'job.request_responded',
+  JOB_REQUEST_DECLINED: 'job.request_declined',
+  JOB_REQUEST_ATTACHMENT_ADDED: 'job.attachment_added',
+  JOB_REQUEST_ATTACHMENT_REMOVED: 'job.attachment_removed',
   JOB_REQUEST_CANCELLED: 'job.request_cancelled',
   // Commerce
   QUOTATION_REQUESTED: 'quotation.requested',
