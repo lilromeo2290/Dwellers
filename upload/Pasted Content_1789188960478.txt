@@ -1,0 +1,1684 @@
+DWELLERS — PHASE 3
+
+AUTHENTICATION, REGISTRATION, ONBOARDING & ROLE-BASED DASHBOARDS
+
+Product:
+DWELLERS
+Find. Buy. Build.
+
+============================================================
+IMPORTANT PROJECT RULE
+============================================================
+
+You are continuing the existing DWELLERS project.
+
+DO NOT rebuild the project.
+
+DO NOT replace the existing technology stack.
+
+DO NOT discard or rewrite working Phase 1 or Phase 2 code.
+
+DO NOT start the marketplace, advanced search, quotations, payments, full messaging, equipment rental, or project-management features yet.
+
+Those belong to later phases.
+
+Phase 1 is complete.
+
+Phase 2 is complete and has passed its verification gate.
+
+Phase 2 delivered:
+
+- 41-model domain schema
+- Nationwide Ghana location architecture
+- Provider service-area architecture
+- Business architecture
+- Job Request foundation
+- Quote foundation
+- Project foundation
+- Messaging foundation
+- Commerce foundation
+- Verification foundation
+- 9 API endpoint groups
+- Ownership protection
+- RBAC
+- 106/106 Phase 2 checks passing
+- 48/48 Phase 1 checks still passing
+- TypeScript strict checking enforced
+- Clean migration and seed verification
+
+The Phase 2 report explicitly states:
+
+PHASE 3 = AUTHENTICATION, REGISTRATION & ROLE-BASED DASHBOARDS
+
+Build Phase 3 on top of the existing foundation.
+
+============================================================
+PHASE 3 OBJECTIVE
+============================================================
+
+Transform the existing backend foundation into a real authenticated Dwellers user platform.
+
+A visitor must be able to:
+
+1. Visit Dwellers.
+2. Create an account.
+3. Select what they want to do on Dwellers.
+4. Complete the appropriate registration/onboarding process.
+5. Log in securely.
+6. Be assigned the correct role.
+7. Be taken to the correct dashboard.
+8. Manage their profile.
+9. Manage their professional/business information where applicable.
+10. Manage their service areas where applicable.
+11. Access only the features permitted to their role.
+
+Authentication and authorization must be enforced SERVER-SIDE.
+
+Never rely only on hiding buttons or pages in the frontend.
+
+============================================================
+PART 1 — EXISTING ARCHITECTURE
+============================================================
+
+First inspect the complete existing project.
+
+Understand:
+
+- Next.js 16 App Router
+- TypeScript strict mode
+- Tailwind 4
+- shadcn/ui
+- Prisma 6
+- SQLite development database
+- PostgreSQL-ready schema
+- NextAuth v4
+- Zod
+- Bun
+- ESLint
+- existing handler factory
+- existing RBAC engine
+- existing ownership guard
+- existing audit logging
+- existing session abstraction
+- existing API response envelope
+
+DO NOT replace these systems unnecessarily.
+
+Reuse existing abstractions.
+
+Before changing code, identify the existing authentication/session seam prepared in Phase 1 and Phase 2.
+
+============================================================
+PART 2 — AUTHENTICATION ARCHITECTURE
+============================================================
+
+Implement production-oriented authentication using the existing NextAuth v4 foundation.
+
+Authentication must support:
+
+- registration
+- login
+- logout
+- session
+- password security
+- account status
+- role
+- profile
+- verification-ready state
+
+Never store plaintext passwords.
+
+Continue using the existing password hashing abstraction.
+
+Do not expose password hashes through APIs.
+
+Do not expose authentication secrets.
+
+============================================================
+PART 3 — REGISTRATION ENTRY POINT
+============================================================
+
+Create a clean Dwellers registration experience.
+
+The first important question should be:
+
+"How will you use Dwellers?"
+
+Present simple options such as:
+
+--------------------------------------------------
+I NEED A SERVICE
+--------------------------------------------------
+For customers looking for artisans, contractors,
+construction companies and other services.
+
+--------------------------------------------------
+I PROVIDE SERVICES
+--------------------------------------------------
+For artisans, contractors and construction professionals.
+
+--------------------------------------------------
+I SELL BUILDING MATERIALS
+--------------------------------------------------
+For material suppliers and merchants.
+
+--------------------------------------------------
+I PROVIDE CONSTRUCTION EQUIPMENT
+--------------------------------------------------
+For equipment owners and rental providers.
+
+--------------------------------------------------
+I REPRESENT A CONSTRUCTION COMPANY
+--------------------------------------------------
+For registered construction companies and teams.
+--------------------------------------------------
+
+The selected path must determine the onboarding flow.
+
+Do not automatically grant an administrative role.
+
+============================================================
+PART 4 — CUSTOMER REGISTRATION
+============================================================
+
+Customer registration should collect only information necessary at account creation.
+
+Suggested fields:
+
+- Full name
+- Phone number
+- Email where applicable
+- Password
+- Confirm password
+- Preferred location
+
+Location should use the existing Ghana location hierarchy.
+
+Do not ask customers unnecessary professional questions.
+
+After registration:
+
+CUSTOMER
+→ Account created
+→ Session established
+→ Customer onboarding
+→ Customer dashboard
+
+============================================================
+PART 5 — ARTISAN REGISTRATION
+============================================================
+
+An artisan must be able to register as an individual professional.
+
+Collect:
+
+PERSONAL:
+
+- Full name
+- Phone
+- Email
+- Password
+
+PROFESSIONAL:
+
+- Trade/profession
+- Years of experience
+- Description/about
+- Services offered
+- Base location
+- Service areas
+
+Examples:
+
+Plumber
+Electrician
+Mason
+Carpenter
+Welder
+Painter
+Tiler
+Roofer
+AC Technician
+Landscaper
+etc.
+
+Use the existing category/service architecture.
+
+Do not hard-code the complete category system into the frontend.
+
+After registration:
+
+ARTISAN
+→ Profile
+→ Professional information
+→ Service areas
+→ Dashboard
+
+============================================================
+PART 6 — CONTRACTOR REGISTRATION
+============================================================
+
+Allow a contractor to register as a professional service provider.
+
+Collect:
+
+- Name
+- Phone
+- Email
+- Password
+- Professional description
+- Construction services
+- Years of experience
+- Base location
+- Service areas
+- Portfolio-ready information
+
+Role:
+
+CONTRACTOR
+
+Do not automatically mark the contractor as verified.
+
+============================================================
+PART 7 — CONSTRUCTION COMPANY REGISTRATION
+============================================================
+
+Allow construction companies to create business accounts.
+
+Collect:
+
+BUSINESS:
+
+- Company name
+- Business type
+- Description
+- Business phone
+- Business email
+- Business location
+- Service areas
+
+OWNER:
+
+- Owner/admin name
+- Phone
+- Email
+- Password
+
+Prepare the account for future:
+
+- team members
+- projects
+- quotations
+- company portfolio
+- company verification
+
+Use the existing Business and BusinessMember architecture.
+
+============================================================
+PART 8 — SUPPLIER REGISTRATION
+============================================================
+
+Allow building-material suppliers to register.
+
+Collect:
+
+- Owner/contact name
+- Business name
+- Phone
+- Email
+- Password
+- Business location
+- Product categories
+- Description
+- Delivery availability
+- Service area
+
+Role:
+
+SUPPLIER
+
+Do not build the complete product marketplace yet.
+
+Only establish supplier onboarding and profile management.
+
+============================================================
+PART 9 — EQUIPMENT PROVIDER REGISTRATION
+============================================================
+
+Allow equipment providers to register.
+
+Collect:
+
+- Owner/contact name
+- Business name where applicable
+- Phone
+- Email
+- Password
+- Location
+- Equipment categories
+- Description
+- Service area
+- Delivery availability
+
+Role:
+
+EQUIPMENT_PROVIDER
+
+Do not build full equipment rental in this phase.
+
+============================================================
+PART 10 — ADMINISTRATOR ACCOUNTS
+============================================================
+
+Do NOT allow public registration as:
+
+ADMINISTRATOR
+
+or
+
+SUPER_ADMINISTRATOR
+
+These roles must only be assigned through protected administrative processes.
+
+Preserve the Phase 1 RBAC escalation defence.
+
+============================================================
+PART 11 — PHONE VALIDATION
+============================================================
+
+Use the corrected Ghana phone validation from Phase 2.
+
+Supported Ghana format:
+
+0XXXXXXXXX
+
+and normalized:
+
++233XXXXXXXXX
+
+Use the existing validation abstraction.
+
+Do not create another conflicting phone validator.
+
+Store phone numbers in canonical normalized form.
+
+============================================================
+PART 12 — EMAIL VALIDATION
+============================================================
+
+Validate email addresses using Zod.
+
+Normalize email where appropriate.
+
+Prevent duplicate accounts according to the existing database constraints.
+
+Do not reveal whether an email belongs to another account in a way that creates unnecessary account-enumeration risk.
+
+============================================================
+PART 13 — PASSWORD POLICY
+============================================================
+
+Create a reasonable password policy.
+
+Password must:
+
+- meet minimum length
+- be securely hashed
+- never appear in logs
+- never appear in API responses
+- never be stored in plaintext
+
+Do not impose unnecessarily complicated rules that harm usability.
+
+Use the existing password utility.
+
+============================================================
+PART 14 — ACCOUNT STATUS
+============================================================
+
+Respect the existing user status model.
+
+Possible states may include:
+
+ACTIVE
+SUSPENDED
+PENDING
+DISABLED
+DELETED
+
+Adapt to the existing schema rather than creating conflicting states.
+
+A suspended or disabled account must not be able to authenticate normally.
+
+Do not simply hide suspended users from the UI.
+
+Enforce this server-side.
+
+============================================================
+PART 15 — SESSION MANAGEMENT
+============================================================
+
+Implement secure session handling.
+
+The session must expose only the information needed by the application.
+
+At minimum, the server must be able to determine:
+
+- authenticated user
+- user ID
+- role
+- account status
+
+Do not put unnecessary sensitive information into the session token.
+
+Integrate the session with the existing handler factory.
+
+Protected API route:
+
+NO SESSION
+→ 401
+
+VALID SESSION
+→ continue to RBAC
+
+============================================================
+PART 16 — SERVER-SIDE AUTHORIZATION
+============================================================
+
+Authentication answers:
+
+"Who are you?"
+
+Authorization answers:
+
+"What are you allowed to do?"
+
+Every protected action must perform authorization server-side.
+
+Example:
+
+CUSTOMER
+can manage own profile.
+
+ARTISAN
+can manage own provider profile.
+
+SUPPLIER
+can manage own products later.
+
+EQUIPMENT_PROVIDER
+can manage own equipment later.
+
+CONSTRUCTION_COMPANY
+can manage authorized company resources.
+
+ADMINISTRATOR
+has administrative permissions according to the existing RBAC matrix.
+
+SUPER_ADMINISTRATOR
+retains the existing highest-level permissions.
+
+Do not bypass the existing RBAC engine.
+
+============================================================
+PART 17 — OWNERSHIP
+============================================================
+
+Continue using:
+
+LOAD
+→ VERIFY
+→ ACT
+
+from Phase 2.
+
+Examples:
+
+Customer A cannot edit Customer B's profile.
+
+Artisan A cannot edit Artisan B's profile.
+
+Business A cannot edit Business B.
+
+Company member without permission cannot modify protected company information.
+
+A provider cannot modify another provider's services.
+
+Never trust IDs supplied by the browser.
+
+============================================================
+PART 18 — CUSTOMER DASHBOARD
+============================================================
+
+Create the first real Dwellers customer dashboard.
+
+Dashboard should be simple and professional.
+
+Header:
+
+Welcome, [Customer Name]
+
+Main areas:
+
+- My Profile
+- Find an Artisan
+- My Job Requests
+- My Projects
+- My Quotes
+- My Orders
+- Messages
+- Saved Providers
+- Notifications
+- Account Settings
+
+IMPORTANT:
+
+Some of these may display:
+
+"Coming in a later phase"
+
+if their backend feature is not yet implemented.
+
+Do not create fake functionality.
+
+============================================================
+PART 19 — ARTISAN DASHBOARD
+============================================================
+
+Create:
+
+WELCOME, [ARTISAN NAME]
+
+Sections:
+
+- Overview
+- My Profile
+- My Services
+- Service Areas
+- Job Requests
+- Quotes
+- Projects
+- Messages
+- Portfolio
+- Reviews
+- Verification
+- Availability
+- Settings
+
+Only activate features that have backend support.
+
+Future features can be marked as coming soon.
+
+============================================================
+PART 20 — CONTRACTOR DASHBOARD
+============================================================
+
+Create:
+
+- Overview
+- Profile
+- Services
+- Service Areas
+- Job Requests
+- Quotes
+- Projects
+- Portfolio
+- Reviews
+- Messages
+- Verification
+- Settings
+
+============================================================
+PART 21 — CONSTRUCTION COMPANY DASHBOARD
+============================================================
+
+Create:
+
+- Overview
+- Company Profile
+- Team
+- Services
+- Service Areas
+- Job Requests
+- Projects
+- Quotes
+- Portfolio
+- Reviews
+- Verification
+- Messages
+- Settings
+
+Respect BusinessMember permissions.
+
+A normal company member must not automatically receive owner-level permissions.
+
+============================================================
+PART 22 — SUPPLIER DASHBOARD
+============================================================
+
+Create:
+
+- Overview
+- Business Profile
+- Products
+- Orders
+- Customers
+- Delivery
+- Reviews
+- Messages
+- Settings
+
+Again:
+
+Do not implement the full marketplace in Phase 3.
+
+Use placeholders for later functionality where necessary.
+
+============================================================
+PART 23 — EQUIPMENT PROVIDER DASHBOARD
+============================================================
+
+Create:
+
+- Overview
+- Profile
+- Equipment
+- Rental Requests
+- Availability
+- Customers
+- Reviews
+- Messages
+- Settings
+
+Only implement supported functionality.
+
+============================================================
+PART 24 — ADMIN DASHBOARD
+============================================================
+
+Create a protected administrator dashboard.
+
+Sections:
+
+- Overview
+- Users
+- Businesses
+- Providers
+- Categories
+- Locations
+- Verification
+- Reports
+- Audit Logs
+- Settings
+
+Use the existing RBAC permissions.
+
+Do not expose administrative pages to ordinary users.
+
+============================================================
+PART 25 — PROFILE MANAGEMENT
+============================================================
+
+Every authenticated user must be able to manage their own profile.
+
+Customer:
+
+- name
+- phone
+- email
+- location
+- profile image
+
+Professional:
+
+- professional name
+- profession
+- biography
+- experience
+- services
+- service areas
+- availability
+
+Business:
+
+- business name
+- description
+- contact
+- location
+- service areas
+- logo
+
+Use the existing storage abstraction for images.
+
+Continue blocking unsafe SVG uploads.
+
+============================================================
+PART 26 — LOCATION ONBOARDING
+============================================================
+
+Location is extremely important to Dwellers.
+
+When appropriate, ask the user:
+
+WHERE ARE YOU LOCATED?
+
+Use:
+
+Region
+→ District
+→ Town
+→ Community/Area
+
+Do not make Accra the default.
+
+A user should be able to register from:
+
+Nsawam
+Ho
+Kumasi
+Tamale
+Koforidua
+Cape Coast
+Sunyani
+Wa
+Bolgatanga
+Tema
+or any other supported Ghana location.
+
+Do not hard-code these into the registration UI.
+
+Use the existing location API/database.
+
+============================================================
+PART 27 — ARTISAN SERVICE AREAS
+============================================================
+
+During artisan onboarding:
+
+ASK:
+
+"Where do you provide your services?"
+
+Allow the artisan to select one or more service areas.
+
+Example:
+
+Base location:
+
+Nsawam
+
+Service areas:
+
+Nsawam
+Adoagyiri
+Suhum
+Koforidua
+
+This must use the Phase 2 service-area relationship.
+
+Do not store this as free text.
+
+============================================================
+PART 28 — VERIFICATION
+============================================================
+
+Registration does NOT mean verification.
+
+After registering:
+
+Status:
+
+UNVERIFIED / PENDING
+
+where appropriate.
+
+The provider should see:
+
+"Your profile is not yet verified."
+
+Create a verification-ready UI foundation.
+
+Do not allow a user to simply click:
+
+"I am verified."
+
+Verification remains an administrative/trust workflow.
+
+============================================================
+PART 29 — LOGIN EXPERIENCE
+============================================================
+
+Create a premium but simple Dwellers login page.
+
+Brand:
+
+DWELLERS
+
+Find. Buy. Build.
+
+Login options should use the authentication system implemented in this phase.
+
+Include:
+
+- phone/email field as supported
+- password
+- remember/session behavior where appropriate
+- forgot password foundation if safely implementable
+- registration link
+
+Do not make the login page overly complicated.
+
+============================================================
+PART 30 — ROUTE PROTECTION
+============================================================
+
+Protect dashboard routes.
+
+Examples:
+
+/dashboard
+/customer
+/artisan
+/contractor
+/company
+/supplier
+/equipment
+/admin
+
+Use the existing authorization system.
+
+A customer attempting to access an admin page:
+
+403
+
+or safe redirect according to the established UX.
+
+Do not leak protected data.
+
+============================================================
+PART 31 — ROLE-BASED REDIRECTION
+============================================================
+
+After successful authentication:
+
+CUSTOMER
+→ Customer Dashboard
+
+ARTISAN
+→ Artisan Dashboard
+
+CONTRACTOR
+→ Contractor Dashboard
+
+CONSTRUCTION_COMPANY
+→ Company Dashboard
+
+SUPPLIER
+→ Supplier Dashboard
+
+EQUIPMENT_PROVIDER
+→ Equipment Provider Dashboard
+
+ADMINISTRATOR
+→ Admin Dashboard
+
+SUPER_ADMINISTRATOR
+→ Admin Dashboard
+
+Never trust a role sent from the client.
+
+Read the authoritative role from the authenticated server-side identity/database.
+
+============================================================
+PART 32 — REGISTRATION SECURITY
+============================================================
+
+Protect registration against:
+
+- duplicate accounts
+- malformed input
+- oversized payloads
+- rate abuse
+- privilege escalation
+- malicious file uploads
+- password exposure
+- account enumeration where possible
+
+Use existing:
+
+- rate limiter
+- Zod validation
+- audit logging
+- error envelope
+- security headers
+
+============================================================
+PART 33 — AUDIT LOGGING
+============================================================
+
+Important authentication events should generate appropriate audit events.
+
+Examples:
+
+- registration
+- login success
+- login failure where appropriate
+- logout
+- password change
+- profile update
+- role change
+- account suspension
+- verification action
+- business membership change
+
+Never log passwords or secrets.
+
+============================================================
+PART 34 — NOTIFICATIONS
+============================================================
+
+Prepare in-app notification events for:
+
+- successful registration
+- profile completion reminder
+- verification status
+- new job request later
+- quote received later
+- account security event
+
+Do not integrate SMS, WhatsApp or email providers in this phase unless already required by existing architecture.
+
+============================================================
+PART 35 — PROFILE COMPLETION
+============================================================
+
+Create a profile completion concept.
+
+Example artisan:
+
+Profile completion:
+
+75%
+
+Missing:
+
+- Portfolio
+- Verification documents
+- Additional service areas
+
+Customer:
+
+Profile completion:
+
+80%
+
+Missing:
+
+- Profile image
+- Community
+
+Do not block basic account access unnecessarily.
+
+Use completion status to guide users.
+
+============================================================
+PART 36 — DASHBOARD DESIGN
+============================================================
+
+The Dwellers dashboard must be:
+
+- clean
+- professional
+- modern
+- mobile-first
+- fast
+- easy to understand
+
+Do not overcrowd the interface.
+
+Use the existing Dwellers branding.
+
+Maintain the existing:
+
+- forest green
+- gold
+- light/dark theme
+- typography
+- spacing
+- shadcn/ui components
+
+Do not redesign the public landing page unnecessarily.
+
+============================================================
+PART 37 — MOBILE
+============================================================
+
+The dashboards and authentication flows must work properly on:
+
+Desktop
+Tablet
+Mobile
+
+Pay particular attention to:
+
+- navigation
+- forms
+- dropdowns
+- location selection
+- dashboard cards
+- profile editing
+- registration steps
+
+No horizontal overflow.
+
+No broken navigation.
+
+============================================================
+PART 38 — ACCESSIBILITY
+============================================================
+
+Use accessible:
+
+- labels
+- buttons
+- inputs
+- error messages
+- keyboard navigation
+- focus states
+
+Do not rely only on color to communicate status.
+
+============================================================
+PART 39 — API ENDPOINTS
+============================================================
+
+Build the authentication/profile endpoints needed for Phase 3.
+
+Examples where appropriate:
+
+POST /api/auth/register
+
+POST /api/auth/login
+
+POST /api/auth/logout
+
+GET /api/users/me
+
+PATCH /api/users/me
+
+PATCH /api/users/me/password
+
+GET /api/users/me/profile
+
+PATCH /api/users/me/profile
+
+Professional/business profile endpoints where required.
+
+Do not blindly create duplicate authentication systems.
+
+Use the existing NextAuth/session architecture.
+
+All API endpoints must use:
+
+rate limiting
+→ authentication
+→ RBAC
+→ validation
+→ business logic
+→ response envelope
+→ structured logging
+
+============================================================
+PART 40 — DATABASE CHANGES
+============================================================
+
+Only modify the Prisma schema if Phase 3 genuinely requires it.
+
+Prefer using the existing Phase 2 models.
+
+If a migration is required:
+
+- create a proper Prisma migration
+- test from clean state
+- update seed where appropriate
+- document the change
+
+Do not modify working Phase 2 structures unnecessarily.
+
+============================================================
+PART 41 — PASSWORD CHANGE
+============================================================
+
+Allow authenticated users to change passwords.
+
+Require:
+
+Current password
+New password
+Confirm new password
+
+Verify current password server-side.
+
+Invalidate or appropriately refresh sessions after password changes according to the authentication design.
+
+Do not reveal whether the supplied current password was close to correct.
+
+============================================================
+PART 42 — ACCOUNT SECURITY
+============================================================
+
+Prepare for future:
+
+- email verification
+- phone verification
+- password reset
+- account recovery
+- session revocation
+
+Implement only what is appropriate for this phase.
+
+Do not create insecure fake verification mechanisms.
+
+============================================================
+PART 43 — DEMO ACCOUNTS
+============================================================
+
+Preserve the Phase 2 demo seed safety.
+
+Do not allow demo accounts to become trusted verified providers.
+
+Do not expose real-looking credentials in production.
+
+Clearly identify development accounts.
+
+============================================================
+PART 44 — TESTING
+============================================================
+
+Create a comprehensive Phase 3 verification suite.
+
+Test:
+
+CUSTOMER REGISTRATION
+
+ARTISAN REGISTRATION
+
+CONTRACTOR REGISTRATION
+
+CONSTRUCTION COMPANY REGISTRATION
+
+SUPPLIER REGISTRATION
+
+EQUIPMENT PROVIDER REGISTRATION
+
+ADMIN PROTECTION
+
+LOGIN
+
+LOGOUT
+
+SESSION
+
+PASSWORD SECURITY
+
+ACCOUNT STATUS
+
+PROFILE UPDATE
+
+ROLE AUTHORIZATION
+
+OWNERSHIP
+
+SERVICE AREAS
+
+LOCATION
+
+BUSINESS MEMBERSHIP
+
+AUDIT LOGGING
+
+RATE LIMITING
+
+VALIDATION
+
+ERROR HANDLING
+
+--------------------------------------------------
+
+Security tests:
+
+Customer cannot access another customer's profile.
+
+Artisan cannot modify another artisan.
+
+Supplier cannot modify another supplier.
+
+Company member cannot perform owner-only action.
+
+Customer cannot access admin.
+
+Artisan cannot access supplier administration.
+
+Anonymous user cannot access dashboard APIs.
+
+Disabled user cannot authenticate.
+
+Suspended user cannot perform protected operations.
+
+Client cannot submit ADMINISTRATOR role during registration.
+
+Client cannot submit SUPER_ADMINISTRATOR role during registration.
+
+Client cannot alter their role through profile update.
+
+--------------------------------------------------
+PART 45 — IDOR TESTING
+--------------------------------------------------
+
+Explicitly test:
+
+User A
+→ User B resource
+
+must result in:
+
+403 or 404
+
+never:
+
+200
+
+and never:
+
+500
+
+Test indirect ownership through:
+
+Business
+→ BusinessMember
+→ Service
+→ Product
+→ Equipment
+→ Project
+
+============================================================
+PART 46 — CLEAN DATABASE TEST
+============================================================
+
+Delete the development database.
+
+Run:
+
+prisma migrate deploy
+
+Run:
+
+db:seed
+
+Start application.
+
+Run all Phase 1 and Phase 2 tests.
+
+Run Phase 3 tests.
+
+Confirm:
+
+- migration works
+- seed works
+- authentication works
+- dashboards work
+- profile management works
+- location data works
+- service areas work
+
+============================================================
+PART 47 — TYPE SAFETY
+============================================================
+
+Run:
+
+tsc --noEmit
+
+It MUST pass.
+
+Do not re-enable:
+
+ignoreBuildErrors
+
+Do not use:
+
+any
+
+as a shortcut to hide legitimate problems.
+
+Run:
+
+bun run lint
+
+It MUST pass.
+
+============================================================
+PART 48 — BROWSER VERIFICATION
+============================================================
+
+Test real browser flows.
+
+Minimum:
+
+1. Open Dwellers.
+2. Register customer.
+3. Login.
+4. Reach customer dashboard.
+5. Logout.
+6. Register professional/provider.
+7. Complete provider onboarding.
+8. Select Ghana location.
+9. Select service areas.
+10. Login.
+11. Reach correct provider dashboard.
+12. Attempt unauthorized route.
+13. Confirm access is denied.
+14. Edit profile.
+15. Confirm changes persist.
+16. Test mobile viewport.
+
+Zero critical console errors.
+
+============================================================
+PART 49 — PERFORMANCE
+============================================================
+
+Do not create unnecessary database queries during:
+
+- login
+- registration
+- dashboard loading
+- profile loading
+- location selection
+
+Use appropriate Prisma selects.
+
+Do not return entire User records when only a few fields are required.
+
+============================================================
+PART 50 — DOCUMENTATION
+============================================================
+
+Update:
+
+README.md
+
+ARCHITECTURE.md
+
+DATABASE.md
+
+Add:
+
+AUTHENTICATION.md
+
+Document:
+
+- registration
+- login
+- sessions
+- roles
+- RBAC
+- onboarding
+- profile ownership
+- business membership
+- service areas
+- account states
+- security decisions
+- password policy
+- dashboard routing
+
+============================================================
+PART 51 — DO NOT BUILD YET
+============================================================
+
+DO NOT implement the following as complete features:
+
+- advanced artisan search
+- provider matching algorithm
+- full job-request UI
+- quotation workflow
+- payment gateway
+- checkout
+- WhatsApp integration
+- SMS integration
+- advanced messaging
+- equipment rental workflow
+- full project management
+- AI recommendations
+- construction cost estimator
+- advanced analytics
+
+These belong to later phases.
+
+Only create foundations required for authentication and dashboards.
+
+============================================================
+PART 52 — FINAL VERIFICATION
+============================================================
+
+Before declaring Phase 3 complete, run:
+
+bun run lint
+
+tsc --noEmit
+
+bun run verify
+
+bun run verify:phase2
+
+Phase 3 verification suite.
+
+Clean database migration.
+
+Seed.
+
+Browser desktop test.
+
+Browser mobile test.
+
+Security tests.
+
+RBAC tests.
+
+IDOR tests.
+
+Authentication tests.
+
+Profile tests.
+
+All tests must pass.
+
+============================================================
+PART 53 — GIT
+============================================================
+
+Use conventional commits.
+
+Example:
+
+feat: add authentication and registration
+
+feat: add role-based onboarding
+
+feat: add role dashboards
+
+test: add phase 3 authentication verification
+
+docs: document authentication architecture
+
+Keep commits logically separated.
+
+Do not commit:
+
+.env
+
+credentials
+
+passwords
+
+API keys
+
+private certificates
+
+generated secrets
+
+============================================================
+PART 54 — PHASE 3 FINAL REPORT
+============================================================
+
+When Phase 3 is complete, DO NOT automatically begin Phase 4.
+
+Return a professional report using this exact structure:
+
+# DWELLERS — PHASE 3 REPORT
+
+## 1. STATUS
+
+COMPLETE / INCOMPLETE
+
+## 2. AUTHENTICATION
+
+Explain:
+
+- registration
+- login
+- logout
+- sessions
+- password security
+
+## 3. REGISTRATION TYPES
+
+Show:
+
+Customer
+Artisan
+Contractor
+Construction Company
+Supplier
+Equipment Provider
+
+## 4. ROLE ASSIGNMENT
+
+Explain how roles are securely assigned.
+
+## 5. ONBOARDING
+
+Explain each onboarding flow.
+
+## 6. LOCATION
+
+Explain:
+
+Region
+→ District
+→ Town
+→ Community
+
+## 7. SERVICE AREAS
+
+Explain how artisans/providers define where they work.
+
+## 8. DASHBOARDS
+
+List every dashboard and its available modules.
+
+## 9. RBAC
+
+Show role access rules.
+
+## 10. OWNERSHIP
+
+Show IDOR protection tests.
+
+## 11. SECURITY
+
+Explain authentication and security controls.
+
+## 12. DATABASE
+
+List any schema changes.
+
+## 13. API
+
+List authentication/profile endpoints.
+
+## 14. TEST RESULTS
+
+Provide exact test counts and results.
+
+## 15. BROWSER TEST
+
+Desktop:
+
+PASS / FAIL
+
+Mobile:
+
+PASS / FAIL
+
+## 16. TYPESCRIPT
+
+tsc --noEmit:
+
+PASS / FAIL
+
+## 17. ESLINT
+
+PASS / FAIL
+
+## 18. CLEAN DATABASE
+
+PASS / FAIL
+
+## 19. GIT
+
+List commits and confirm clean working tree.
+
+## 20. KNOWN ISSUES
+
+List all remaining issues.
+
+## 21. DEFERRED FEATURES
+
+List features intentionally left for later phases.
+
+## 22. PHASE 4 READINESS
+
+Explain whether the project is ready for:
+
+PHASE 4 — FIND / NATIONWIDE DISCOVERY
+
+Do NOT begin Phase 4 automatically.
+
+WAIT FOR PROJECT OWNER APPROVAL.
+
+============================================================
+FINAL RULE
+============================================================
+
+DO NOT declare Phase 3 complete based on code being written.
+
+Phase 3 is complete only when:
+
+- functionality works
+- authentication works
+- authorization works
+- registration works
+- dashboards work
+- ownership works
+- location onboarding works
+- service-area onboarding works
+- tests pass
+- TypeScript passes
+- ESLint passes
+- clean migration passes
+- browser tests pass
+- documentation is updated
+- Git tree is clean
+
+Then stop and wait for project owner approval.

@@ -36,13 +36,19 @@ export function SiteHeader() {
 
         <div className="flex items-center gap-2">
           <Badge variant="outline" className="hidden border-accent/60 bg-accent/15 text-accent-foreground sm:inline-flex">
-            Phase 1 · Foundation
+            Phase 3 · Accounts &amp; Dashboards
           </Badge>
           <a
-            href="/api"
+            href="/auth/sign-in"
+            className="inline-flex h-9 items-center rounded-lg border border-border bg-card px-4 text-sm font-semibold text-foreground shadow-sm transition-colors hover:bg-secondary focus-visible:outline-2 focus-visible:outline-ring"
+          >
+            Sign in
+          </a>
+          <a
+            href="/auth/register"
             className="inline-flex h-9 items-center rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 focus-visible:outline-2 focus-visible:outline-ring"
           >
-            API Status
+            Get started
           </a>
         </div>
       </div>

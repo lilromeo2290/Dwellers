@@ -52,10 +52,16 @@ export const notificationListQuerySchema = paginationQuerySchema.extend({
   unreadOnly: z
     .enum(['true', 'false'])
     .optional()
+    .default('false')
     .transform((value) => value === 'true'),
 })
 
-export type NotificationListQuery = z.infer<typeof notificationListQuerySchema>
+/** Service-level query accepts either the parsed schema output or a plain literal. */
+export interface NotificationListQuery {
+  page: number
+  pageSize: number
+  unreadOnly?: boolean
+}
 
 /** The caller's own notifications, newest first, with an unread count. */
 export async function listOwnNotifications(auth: AuthContext | null, query: NotificationListQuery) {
