@@ -76,7 +76,7 @@ export default async function ArtisanOverviewPage() {
       </div>
 
       <div className="mt-6 grid gap-4 sm:grid-cols-2">
-        <ComingSoon title="Job Requests" phase="Phase 5" description="Customer leads will appear here." />
+        <ComingSoon title="Job Requests" phase="Phase 5 — LIVE" description="Live now — open Job Requests in the sidebar." href="/artisan/requests" />
         <ComingSoon title="Quotes" phase="Phase 5" description="Submit quotations from here." />
         <ComingSoon title="Portfolio" phase="Phase 4" description="Show photos of your completed work." />
         <ComingSoon title="Messages" phase="Phase 6" description="Chat with customers directly." />

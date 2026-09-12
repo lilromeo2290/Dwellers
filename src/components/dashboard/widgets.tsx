@@ -133,20 +133,29 @@ export function ComingSoon({
   title,
   phase,
   description,
+  /** When set, the feature is LIVE and the card links to it. */
+  href,
 }: {
   title: string
   phase?: string
   description?: string
+  href?: string
 }) {
   return (
-    <Card className="border-dashed" data-testid="coming-soon">
+    <Card className={href ? 'border-primary/40' : 'border-dashed'} data-testid={href ? 'feature-live' : 'coming-soon'}>
       <CardContent className="flex items-start gap-3 p-4 sm:p-5">
         <Clock3 className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" aria-hidden="true" />
         <div>
           <p className="text-sm font-semibold text-foreground">{title}</p>
           <p className="text-sm text-muted-foreground">
             {description ?? 'This feature is on the Dwellers roadmap.'}{' '}
-            {phase ? <span className="font-medium text-foreground">Arrives in {phase}.</span> : null}
+            {href ? (
+              <Link href={href} className="font-medium text-primary underline-offset-2 hover:underline">
+                Open now.
+              </Link>
+            ) : phase ? (
+              <span className="font-medium text-foreground">Arrives in {phase}.</span>
+            ) : null}
           </p>
         </div>
       </CardContent>

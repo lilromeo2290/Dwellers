@@ -22,7 +22,7 @@ export function SiteHeader() {
           </span>
         </Link>
 
-        <nav aria-label="Primary" className="hidden items-center gap-1 md:flex">
+        <nav aria-label="Primary" className="hidden items-center gap-1 lg:flex">
           {NAVIGATION_ITEMS.map((item) => (
             <Link
               key={item.href}
@@ -35,7 +35,7 @@ export function SiteHeader() {
         </nav>
 
         <div className="flex items-center gap-2">
-          <Badge variant="outline" className="hidden border-accent/60 bg-accent/15 text-accent-foreground sm:inline-flex">
+          <Badge variant="outline" className="hidden border-accent/60 bg-accent/15 text-accent-foreground lg:inline-flex">
             Phase 4 · Nationwide Discovery
           </Badge>
           <a
@@ -53,8 +53,8 @@ export function SiteHeader() {
         </div>
       </div>
 
-      {/* Mobile anchor nav */}
-      <nav aria-label="Section" className="border-t border-border/60 md:hidden">
+      {/* Mobile anchor nav — visible below lg, where the desktop nav hides */}
+      <nav aria-label="Section" className="border-t border-border/60 lg:hidden">
         <div className="flex gap-1 overflow-x-auto px-4 py-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {NAVIGATION_ITEMS.map((item) => (
             <Link

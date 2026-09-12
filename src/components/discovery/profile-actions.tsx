@@ -1,22 +1,22 @@
 'use client'
 
 /**
- * Dwellers — Provider profile actions (PART 23/24).
+ * Dwellers — Provider profile actions (Phase 5, PART 2).
  *
- * REQUEST SERVICE and MESSAGE PROVIDER are the entry points to the Phase 5
- * job-request and messaging flows. Phase 4 does NOT fake submissions:
- *  - signed out → the user is sent to sign-in/register with the intended
- *    action preserved in the callback URL (next phase completes the loop);
- *  - signed in → an honest notice explains that job requests and messaging
- *    arrive with Phase 5, and the click is recorded (analytics only).
+ * REQUEST SERVICE is now the REAL entry into the job-request wizard:
+ *  - signed out → sign-in/register with the intended action preserved in the
+ *    callback URL; on return, the intent auto-continues into the wizard;
+ *  - signed in → straight to /request-service/[providerId].
+ *
+ * MESSAGE PROVIDER remains an honest placeholder: full conversations arrive
+ * with the messaging phase — nothing is faked (PART 36 scope).
  */
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useSession } from 'next-auth/react'
 import { MessageSquare, ShieldCheck } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { useToast } from '@/hooks/use-toast'
 
 function trackEvent(type: 'provider_contact_clicked' | 'request_service_clicked', providerId: string) {
   try {
@@ -34,16 +34,27 @@ function trackEvent(type: 'provider_contact_clicked' | 'request_service_clicked'
 export function ProfileActions({ providerId, providerName }: { providerId: string; providerName: string }) {
   const { data: session, status } = useSession()
   const router = useRouter()
-  const { toast } = useToast()
-  const [pending, setPending] = useState<'request' | 'message' | null>(null)
+  const [pending, setPending] = useState<'message' | null>(null)
+  const intentHandled = useRef(false)
 
-  // Preserve the intended action across the auth round-trip (PART 22).
+  // Preserve the intended action across the auth round-trip (PART 2).
   // The path is read at CLICK time, not render time, so a click that lands
   // during a client-side page transition still records the right destination.
   const withIntent = (intent: string) => {
     const path = typeof window === 'undefined' ? '' : window.location.pathname
     return `/auth/sign-in?callbackUrl=${encodeURIComponent(`${path}?intent=${intent}`)}`
   }
+
+  // Returned from sign-in with ?intent=request-service → continue into the
+  // wizard exactly where the customer left off.
+  useEffect(() => {
+    if (status !== 'authenticated' || intentHandled.current) return
+    const intent = new URLSearchParams(window.location.search).get('intent')
+    if (intent === 'request-service') {
+      intentHandled.current = true
+      router.replace(`/request-service/${providerId}`)
+    }
+  }, [status, providerId, router])
 
   const signedIn = status === 'authenticated' && Boolean(session?.user?.id)
   const showAnonymousNotice = status === 'unauthenticated'
@@ -54,15 +65,7 @@ export function ProfileActions({ providerId, providerName }: { providerId: strin
       router.push(withIntent('request-service'))
       return
     }
-    setPending('request')
-    toast({
-      title: 'Job requests arrive with Phase 5',
-      description:
-        'Your click was recorded. Requesting service from ' +
-        providerName +
-        ' will create a real job request in the next release — nothing was submitted yet.',
-    })
-    setPending(null)
+    router.push(`/request-service/${providerId}`)
   }
 
   const onMessage = () => {
@@ -72,11 +75,8 @@ export function ProfileActions({ providerId, providerName }: { providerId: strin
       return
     }
     setPending('message')
-    toast({
-      title: 'Messaging arrives with Phase 5',
-      description: `Conversations with ${providerName} open in the next release — no message was sent.`,
-    })
-    setPending(null)
+    // Honest placeholder — no message is sent, no fake conversation (PART 36).
+    window.setTimeout(() => setPending(null), 1500)
   }
 
   if (status === 'loading') {
@@ -91,10 +91,17 @@ export function ProfileActions({ providerId, providerName }: { providerId: strin
   return (
     <div className="space-y-3">
       <div className="grid gap-2 sm:grid-cols-2" data-testid="profile-actions">
-        <Button size="lg" className="h-11" onClick={onRequestService} disabled={pending !== null} data-testid="request-service">
+        <Button size="lg" className="h-11" onClick={onRequestService} data-testid="request-service">
           Request service
         </Button>
-        <Button size="lg" variant="outline" className="h-11" onClick={onMessage} disabled={pending !== null} data-testid="message-provider">
+        <Button
+          size="lg"
+          variant="outline"
+          className="h-11"
+          onClick={onMessage}
+          disabled={pending !== null}
+          data-testid="message-provider"
+        >
           <MessageSquare className="mr-2 h-4 w-4" aria-hidden="true" />
           Message provider
         </Button>

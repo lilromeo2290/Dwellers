@@ -39,7 +39,7 @@ export default async function CompanyOverviewPage() {
       </div>
 
       <div className="mt-6 grid gap-4 sm:grid-cols-2">
-        <ComingSoon title="Job Requests" phase="Phase 5" description="Customer leads will appear here." />
+        <ComingSoon title="Job Requests" phase="Phase 5 — LIVE" description="Live now — open Job Requests in the sidebar." href="/company/requests" />
         <ComingSoon title="Quotes" phase="Phase 5" description="Prepare company quotations." />
         <ComingSoon title="Projects" phase="Phase 6" description="Manage site projects and milestones." />
         <ComingSoon title="Portfolio" phase="Phase 4" description="Completed project galleries." />
