@@ -657,6 +657,64 @@ async function seedDemoData() {
     })
   }
 
+  // Phase 5 demo fixtures -------------------------------------------------------
+  // Raymond (customer in Nsawam) — the acceptance-test customer.
+  const raymond = await upsertUser('raymond@demo.dwellers.test', {
+    name: 'Raymond Asare (Demo)', role: 'CUSTOMER', phone: '0209887766', locationId: nsawam.id,
+  })
+  // A non-owner business member of Adansi Builders — exercises PART 27.
+  const kwaku = await upsertUser('kwaku@demo.dwellers.test', {
+    name: 'Kwaku Osei (Demo)', role: 'CONSTRUCTION_COMPANY', phone: '0247778899', locationId: kumasi.id,
+  })
+  await db.businessMember.upsert({
+    where: { businessId_userId: { businessId: adansi.id, userId: kwaku.id } },
+    update: { memberRole: 'MEMBER', status: 'ACTIVE' },
+    create: { businessId: adansi.id, userId: kwaku.id, memberRole: 'MEMBER', status: 'ACTIVE' },
+  })
+
+  // A real, live demo request: Raymond → Kwame Plumbing (Nsawam), SUBMITTED.
+  const plumbingService = await db.service.findFirst({
+    where: { providerId: kwameProvider.id, status: 'ACTIVE', isSeedData: true },
+  })
+  const existingDemoRequest = await db.jobRequest.findFirst({ where: { reference: 'JR-DEMO002' } })
+  if (!existingDemoRequest && plumbingService) {
+    const now = new Date()
+    await db.jobRequest.create({
+      data: {
+        reference: 'JR-DEMO002',
+        customerId: raymond.id,
+        providerId: kwameProvider.id,
+        serviceId: plumbingService.id,
+        categoryId: plumbing.id,
+        locationId: nsawam.id,
+        title: 'Fix leaking bathroom pipe (Demo)',
+        description:
+          'The pipe under my bathroom sink has been leaking for two days. Please come and inspect it. Near the Adoagyiri market.',
+        preferredTimeSlot: 'MORNING',
+        urgency: 'NORMAL',
+        status: 'SUBMITTED',
+        submittedAt: now,
+        events: {
+          create: [
+            { eventType: 'CREATED', actorId: raymond.id, actorRole: 'CUSTOMER', createdAt: now },
+            { eventType: 'SUBMITTED', actorId: raymond.id, actorRole: 'CUSTOMER', createdAt: now },
+          ],
+        },
+      },
+    })
+    await db.notification.create({
+      data: {
+        recipientId: kwame.id,
+        type: 'JOB_REQUEST_NEW',
+        channel: 'IN_APP',
+        title: 'New service request in Nsawam.',
+        body: 'Plumbing request — open Job Requests to respond.',
+        entityType: 'JobRequest',
+        entityId: (await db.jobRequest.findFirst({ where: { reference: 'JR-DEMO002' } }))!.id,
+      },
+    })
+  }
+
   console.log(
     [
       '',

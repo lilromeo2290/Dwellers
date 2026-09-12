@@ -533,7 +533,7 @@ await check('job schema rejects max budget below min budget', () => {
 await check('job schema rejects submission without description', () => {
   expectThrows(() => parse(jobSchema, { submitNow: true }), ValidationError)
 })
-const jobA = await projects.createJobRequest(authA, parse(jobSchema, {
+const jobAId = await projects.createJobRequest(authA, parse(jobSchema, {
   title: 'Kitchen sink leaking',
   description: 'My kitchen sink is leaking. I need a plumber to come and repair it.',
   categoryId: plumbing.id,
@@ -545,27 +545,33 @@ const jobA = await projects.createJobRequest(authA, parse(jobSchema, {
   submitNow: true,
   attachmentKeys: [{ storageKey: 'job-attachments/2026/09/x.png', kind: 'PHOTO', mimeType: 'image/png', sizeBytes: 1024 }],
 }))
+const jobA = await projects.getJobRequest(authA, jobAId)
 await check('job request created SUBMITTED with reference + attachment', () => {
   if (jobA.status !== 'SUBMITTED') throw new Error('status mismatch')
   if (!jobA.reference.startsWith('JR-')) throw new Error('reference format')
 })
-const draftA = await projects.createJobRequest(authA, parse(jobSchema, { description: 'draft work' }))
+const draftAId = await projects.createJobRequest(authA, parse(jobSchema, { description: 'draft work' }))
 await check('draft request editable by owner while DRAFT', async () => {
-  const updated = await projects.updateJobRequest(authA, draftA.id, { description: 'now with details', budgetMinAmount: 5_000 })
+  const updated = await projects.updateJobRequest(authA, draftAId, {
+    title: 'Please fix my leaking sink',
+    description: 'now with details',
+    locationId: townNsawam.id,
+    budgetMinAmount: 5_000,
+  })
   if (updated.budgetMinAmount !== 5_000) throw new Error('draft edit failed')
 })
 await check('submit transition only from DRAFT', async () => {
-  await projects.updateJobRequest(authA, draftA.id, { action: 'submit' })
-  await expectThrowsAsync(() => projects.updateJobRequest(authA, draftA.id, { action: 'submit' }), BadRequestError)
+  await projects.updateJobRequest(authA, draftAId, { action: 'submit' })
+  await expectThrowsAsync(() => projects.updateJobRequest(authA, draftAId, { action: 'submit' }), BadRequestError)
 })
 await check('customer B reading customer A request → NOT_FOUND (IDOR)', async () => {
-  await expectThrowsAsync(() => projects.getJobRequest(authB, jobA.id), NotFoundError)
+  await expectThrowsAsync(() => projects.getJobRequest(authB, jobAId), NotFoundError)
 })
 await check('unauthenticated request read → UNAUTHORIZED', async () => {
-  await expectThrowsAsync(() => projects.getJobRequest(null, jobA.id), UnauthorizedError)
+  await expectThrowsAsync(() => projects.getJobRequest(null, jobAId), UnauthorizedError)
 })
 await check('customer A cannot cancel-completed semantics: edit non-draft → BAD_REQUEST', async () => {
-  await expectThrowsAsync(() => projects.updateJobRequest(authA, jobA.id, { description: 'x' }), BadRequestError)
+  await expectThrowsAsync(() => projects.updateJobRequest(authA, jobAId, { description: 'x' }), BadRequestError)
 })
 await check('listing is role-scoped: customers see only their own', async () => {
   const a = await projects.listJobRequests(authA, parse(projects.jobRequestListQuerySchema, {}))
@@ -578,7 +584,7 @@ await check('staff sees all job requests', async () => {
   if (all.total < 2) throw new Error('staff scope broken')
 })
 await check('cancel transition records reason', async () => {
-  const cancelled = await projects.updateJobRequest(authA, draftA.id, { action: 'cancel', cancellationReason: 'duplicate' })
+  const cancelled = await projects.updateJobRequest(authA, draftAId, { action: 'cancel', cancellationReason: 'duplicate' })
   if (cancelled.status !== 'CANCELLED') throw new Error('cancel failed')
 })
 await check('invalid job id → NOT_FOUND', async () => {
@@ -593,7 +599,7 @@ await section('10. QUOTES')
 const quoteA = await db.quote.create({
   data: {
     quoteNumber: `QT-VRF-${Date.now()}`,
-    jobRequestId: jobA.id,
+    jobRequestId: jobAId,
     providerId: providerA.id,
     customerId: customerA.id,
     labourAmount: 100_000,
@@ -625,7 +631,7 @@ await check('quote ownership maps to the owning provider (IDOR foundation)', asy
   if (!isOwner({ userId: ownerProfile.userId }, authProviderA)) throw new Error('owner denied')
 })
 await check('quote number uniqueness enforced', async () => {
-  await expectP2002(() => db.quote.create({ data: { quoteNumber: quoteA.quoteNumber, jobRequestId: jobA.id, providerId: providerA.id, customerId: customerA.id } }))
+  await expectP2002(() => db.quote.create({ data: { quoteNumber: quoteA.quoteNumber, jobRequestId: jobAId, providerId: providerA.id, customerId: customerA.id } }))
 })
 
 // -----------------------------------------------------------------------------
@@ -676,7 +682,7 @@ await section('12. MESSAGING')
 const conversation = await db.conversation.create({
   data: {
     type: 'JOB',
-    jobRequestId: jobA.id,
+    jobRequestId: jobAId,
     createdById: customerA.id,
     participants: {
       create: [
@@ -745,7 +751,7 @@ await check('verified review originates from completed engagement', async () => 
     data: {
       reviewerId: customerA.id,
       providerId: providerA.id,
-      jobRequestId: jobA.id,
+      jobRequestId: jobAId,
       ratingOverall: 5,
       ratingQuality: 5,
       ratingCommunication: 4,
