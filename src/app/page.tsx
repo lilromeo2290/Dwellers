@@ -40,7 +40,7 @@ export default function Home() {
             <div className="max-w-3xl">
               <Badge variant="outline" className="border-primary/40 bg-primary/5 text-primary">
                 <Building2 className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />
-                Phase 1 — Project Foundation &amp; Architecture
+                Phase 3 — Accounts, Onboarding &amp; Dashboards
               </Badge>
 
               <h1 className="mt-6 text-4xl font-extrabold leading-[1.05] tracking-tight text-foreground sm:text-6xl">

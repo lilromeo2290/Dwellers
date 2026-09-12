@@ -35,6 +35,7 @@ import {
 } from '@/lib/rate-limit'
 import { getAuthContext, type AuthContext } from '@/lib/auth/session'
 import { requirePermission } from '@/lib/auth/guards'
+import { db } from '@/lib/db'
 import { LogEvent, logger } from '@/lib/logger'
 
 export type AuthRequirement = 'public' | 'optional' | 'required'
@@ -128,21 +129,38 @@ export function createHandler<
         if (!auth && authRequirement === 'required') {
           throw new AppError('UNAUTHORIZED', 401, 'Please sign in to continue.')
         }
-        // PART 14: suspended/deactivated accounts never pass protected routes.
-        // The status claim is captured at sign-in; sensitive services and page
-        // guards additionally re-check the live database record.
-        if (auth && auth.status !== 'ACTIVE') {
-          logger.warn('Blocked request from non-active account', {
-            module: 'auth',
-            event: LogEvent.ACCESS_DENIED,
-            actorId: auth.userId,
-            status: auth.status,
+        // PART 14/44: suspended/deactivated/deleted accounts never pass
+        // protected routes. The JWT status claim fails fast when stale; the
+        // LIVE database record is re-checked for every authenticated request
+        // (one indexed PK select) so mid-session suspension takes effect
+        // immediately — never merely hidden in the UI.
+        if (auth) {
+          if (auth.status !== 'ACTIVE') {
+            logger.warn('Blocked request from non-active account claim', {
+              module: 'auth',
+              event: LogEvent.ACCESS_DENIED,
+              actorId: auth.userId,
+              status: auth.status,
+            })
+            throw new ForbiddenError(
+              auth.status === 'SUSPENDED'
+                ? 'This account has been suspended. Contact Dwellers support.'
+                : 'This account is no longer active.',
+            )
+          }
+          const live = await db.user.findUnique({
+            where: { id: auth.userId },
+            select: { status: true, deletedAt: true },
           })
-          throw new ForbiddenError(
-            auth.status === 'SUSPENDED'
-              ? 'This account has been suspended. Contact Dwellers support.'
-              : 'This account is no longer active.',
-          )
+          if (!live || live.deletedAt || live.status !== 'ACTIVE') {
+            logger.warn('Blocked request from non-active account (live check)', {
+              module: 'auth',
+              event: LogEvent.ACCESS_DENIED,
+              actorId: auth.userId,
+              status: live?.status ?? 'MISSING',
+            })
+            throw new ForbiddenError('This account can no longer be used. Contact Dwellers support.')
+          }
         }
       }
 

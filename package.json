@@ -2,7 +2,7 @@
   "name": "dwellers",
   "version": "0.1.0",
   "private": true,
-  "description": "Dwellers — Find. Buy. Build. A digital construction marketplace for Ghana.",
+  "description": "Dwellers \u2014 Find. Buy. Build. A digital construction marketplace for Ghana.",
   "scripts": {
     "dev": "next dev -p 3000 2>&1 | tee dev.log",
     "build": "next build && cp -r .next/static .next/standalone/.next/ && cp -r public .next/standalone/",
@@ -15,7 +15,8 @@
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:migrate:deploy": "prisma migrate deploy",
-    "db:reset": "prisma migrate reset"
+    "db:reset": "prisma migrate reset",
+    "verify:phase3": "bun scripts/verify-phase3.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

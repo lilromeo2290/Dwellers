@@ -46,9 +46,9 @@ function useLocationList(level: string, parentId: string | null) {
     if (parentId) {
       query.set(level === 'districts' ? 'regionId' : level === 'towns' ? 'districtId' : 'townId', parentId)
     }
-    apiFetch<ListPayload>(`/api/locations?${query.toString()}`)
+    apiFetch<LocationOption[] | ListPayload>(`/api/locations?${query.toString()}`)
       .then((payload) => {
-        if (!cancelled) setItems(payload.items)
+        if (!cancelled) setItems(Array.isArray(payload) ? payload : (payload.items ?? []))
       })
       .catch(() => {
         if (!cancelled) setItems([])

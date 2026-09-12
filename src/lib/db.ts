@@ -20,3 +20,5 @@ function createPrismaClient(): PrismaClient {
 export const db = globalForPrisma.prisma ?? createPrismaClient()
 
 if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = db
+
+// Phase 3: reload marker (Prisma client regeneration)

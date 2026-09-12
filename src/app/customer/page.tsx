@@ -2,7 +2,6 @@
  * Dwellers — Customer dashboard (PART 18).
  * Simple and professional: profile completion + honest later-phase placeholders.
  */
-import Link from 'next/link'
 import { getAuthContext } from '@/lib/auth/session'
 import { getOwnProfileBundle } from '@/modules/identity/profile-service'
 import { WelcomeHeader, CompletionWidget, ComingSoon } from '@/components/dashboard/widgets'
@@ -36,7 +35,7 @@ export default async function CustomerOverviewPage() {
               Nationwide artisan discovery arrives in Phase 4 — plumbers in Nsawam, masons in Kumasi,
               suppliers in Tamale and everywhere between.
             </p>
-            <Button asChild size="sm" variant="outline" disabled>
+            <Button size="sm" variant="outline" disabled>
               <Search className="mr-1.5 h-4 w-4" aria-hidden="true" />
               Search coming soon
             </Button>
