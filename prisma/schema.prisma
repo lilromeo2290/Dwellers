@@ -1244,3 +1244,37 @@ model AuditLog {
   @@index([createdAt])
   @@map("audit_logs")
 }
+
+// =============================================================================
+// DISCOVERY ANALYTICS (Phase 4)
+// =============================================================================
+/// Privacy-safe event log for discovery (PART 32 of the phase plan). This is
+/// an ANALYTICS foundation, not a security trail: high-volume public search
+/// would pollute the security-focused AuditLog, and search events must never
+/// carry personal identifiers. Rows therefore hold resolved taxonomy/location
+/// IDs and coarse outcome counters only — no user IDs, no IPs, no free-text
+/// queries, no device fingerprints. Aggregation over this table powers the
+/// Phase 5+ recommendation and search-quality work.
+model DiscoveryEvent {
+  id          String   @id @default(cuid())
+  /// provider_search | service_search | location_search | provider_profile_view
+  /// | filter_used | provider_contact_clicked | request_service_clicked
+  eventType   String
+  categoryId  String? // resolved category context (ID only, never a name)
+  serviceId   String?
+  regionId    String?
+  districtId  String?
+  townId      String?
+  communityId String?
+  providerId  String? // profile-view / click target
+  resultCount Int? // exact-tier result count for search events
+  sort        String? // recommended | nearest | rating | experience | price | response
+  page        Int?
+  createdAt   DateTime @default(now())
+
+  @@index([eventType, createdAt])
+  @@index([categoryId])
+  @@index([townId])
+  @@index([providerId])
+  @@map("discovery_events")
+}
