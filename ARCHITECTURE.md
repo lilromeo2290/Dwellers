@@ -332,7 +332,8 @@ control for private objects is enforced by the API routes that serve them.
 | **Phase 2** | Database schema & backend foundation (full domain model, first API surface, remediation) | **Complete** |
 | Phase 3 | Authentication, registration & role-based dashboards | ✅ Delivered (see AUTHENTICATION.md) |
 | Phase 4 | Find / Nationwide Discovery (search engine, ranking, SEO landings, provider profiles) | ✅ Delivered (see DISCOVERY.md) |
-| Phase 5+ | Job requests, quotations, commerce, communication, trust features | Indicative |
+| Phase 5 | Request Service / Job Requests (real RFQ workflow, state machine, attachments, notifications) | ✅ Delivered (see JOB_REQUESTS.md) |
+| Phase 6+ | Quotations, payments, messaging, commerce, trust features | Indicative |
 
 Phase sequencing is confirmed per product priorities. **The project does not
-proceed to Phase 5 without explicit instruction.**
+proceed to Phase 6 without explicit instruction.**

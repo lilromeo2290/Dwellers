@@ -34,13 +34,14 @@ The long-term product journey: **Find → Compare → Connect → Quote → Buy 
 
 ```
 ├── prisma/
-│   ├── schema.prisma            # Full domain model (42 models — see DATABASE.md)
+│   ├── schema.prisma            # Full domain model (43 models — see DATABASE.md)
 │   └── migrations/              # Reproducible migrations (never manual pushes)
 ├── scripts/
 │   ├── verify-foundation.ts     # `bun run verify` — Phase 1 core checks
 │   ├── verify-phase2.ts         # `bun run verify:phase2` — domain + security suite
 │   ├── verify-phase3.ts         # `bun run verify:phase3` — auth + onboarding suite
 │   ├── verify-phase4.ts         # `bun run verify:phase4` — discovery suite
+│   ├── verify-phase5.ts         # `bun run verify:phase5` — job-request suite
 │   └── seed.ts                  # `bun run db:seed` — Ghana locations, taxonomy,
 │                                #   clearly-marked demo accounts/listings
 ├── src/
@@ -89,6 +90,9 @@ The long-term product journey: **Find → Compare → Connect → Quote → Buy 
 │   └── types/                   # Shared API contract types
 ├── .env.example                 # Environment template (never real secrets)
 ├── ARCHITECTURE.md              # Technical architecture & decisions
+├── JOB_REQUESTS.md              # Phase 5: request service / job requests —
+│                                #   state machine, wizard, attachments,
+│                                #   responses, notifications, security
 ├── DATABASE.md                  # Database guide: entities, locations, service
 │                                #   areas, RFQ/quote/project/messaging/payment
 │                                #   architecture, authorization, migrations, seed
@@ -139,6 +143,11 @@ bun run verify:phase4    # 56 checks — discovery engine, critical Nsawam
                          # acceptance (4 tests), ranking, filters, sorting,
                          # pagination, nearby fallback, privacy, analytics,
                          # SEO landings, live HTTP discovery contract
+bun run verify:phase5    # 94 checks — job-request lifecycle, state machine,
+                         # provider response, attachments, notifications,
+                         # audit, idempotency, all 10 acceptance tests,
+                         # PART 65 IDOR matrix, business-member permissions,
+                         # suspension guards, rate limiting, privacy
 ```
 
 ### Lint & types
@@ -230,6 +239,10 @@ Never: `update`, `changes`, `test`, `stuff`.
 - **[DISCOVERY.md](./DISCOVERY.md)** — the Find experience: search criteria,
   service/location matching, the ranking weights, nearby fallback,
   public/authenticated boundaries, SEO routes and the API contract.
+- **[JOB_REQUESTS.md](./JOB_REQUESTS.md)** — Request Service: the real
+  job-request workflow — lifecycle and state machine, the six-step wizard,
+  photo attachments, provider responses, notifications, the audit trail and
+  the security model (ownership, IDOR, idempotency).
 - **[DATABASE.md](./DATABASE.md)** — the data model: entities, relationships,
   Ghana location hierarchy, service areas, job-request/quote/project/messaging
   architecture, authorization model, migrations, seed and PostgreSQL readiness.

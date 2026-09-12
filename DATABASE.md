@@ -29,7 +29,7 @@ The schema is written PostgreSQL-ready — see §14 for the migration procedure.
 
 ---
 
-## 2. Entity map (42 models)
+## 2. Entity map (43 models)
 
 ```
 IDENTITY      User · PersonalProfile · AuditLog (no FK, append-only)
@@ -39,7 +39,7 @@ LOCATIONS     Region · District · Town · CommunityArea
 TAXONOMY      Category (self-referencing tree) · MeasurementUnit
 LISTINGS      Service (+ ServiceServiceArea) · Product (+ ProductImage)
               Equipment (+ EquipmentImage)
-RFQ           JobRequest (+ JobRequestAttachment)
+RFQ           JobRequest (+ JobRequestAttachment + JobRequestEvent — timeline)
 QUOTATIONS    Quote · QuoteItem
 PROJECTS      Project · ProjectTask · ProjectMilestone
 MESSAGING     Conversation · ConversationParticipant · Message
@@ -48,7 +48,7 @@ TRUST         Notification · Review · Verification
 PORTFOLIO     PortfolioItem (+ PortfolioImage)
 FAVORITES     Favorite (polymorphic saved items)
 COMMERCE      Order · OrderItem (price snapshots) · Payment
-ANALYTICS     DiscoveryEvent (Phase 4 — privacy-safe, aggregate-only)
+ANALYTICS     DiscoveryEvent (Phase 4/5 — privacy-safe, aggregate-only)
 ```
 
 ---
@@ -230,9 +230,12 @@ A customer describes what they need, where, and when — no phone call required:
    (`locationId` town + optional `communityId` + free-text `areaText` +
    optional lat/lng), budget range (`budgetMinAmount`/`budgetMaxAmount`),
    preferred date and time slot.
-3. The request moves through the lifecycle:
+3. The request moves through the lifecycle (central machine in
+   `src/modules/projects/job-request-state.ts`; the client submits ACTIONS,
+   never statuses — Phase 5):
    `DRAFT → SUBMITTED → MATCHING → RESPONDED → ACCEPTED → IN_PROGRESS →
-   COMPLETED`, or `CANCELLED` (with reason) at any non-terminal point.
+   COMPLETED`, plus `DECLINED` (provider, terminal) and `CANCELLED`
+   (customer, with reason, until the provider commits further).
 4. Providers respond with **Quotes** (§9); acceptance leads to a **Project**
    (§10). Every request gets a human-friendly `reference` (`JR-XXXXXXXX`).
 
@@ -266,6 +269,40 @@ Customer
  → ranked by verification, rating, availability, experience, response rate
  → quotation requests / direct hire
 ```
+
+### 8.2 Phase 5 — the real request workflow
+
+Phase 5 turns §8 into a fully enforced workflow (see JOB_REQUESTS.md):
+
+- **New columns on `JobRequest`**: `urgency` (NORMAL/URGENT/EMERGENCY),
+  `viewedAt` (first provider-side open), `respondedAt`, `responseKind`
+  (INTERESTED / NEEDS_INFO / DECLINED), `clientToken` (browser idempotency
+  key — `@@unique`, a retry can never duplicate a request).
+- **`JobRequestEvent`** (new): append-only timeline rows — CREATED,
+  SUBMITTED, VIEWED, EDITED, ATTACHMENT_ADDED/REMOVED, RESPONSE_INTERESTED,
+  RESPONSE_INFO_REQUESTED, RESPONSE_DECLINED, CANCELLED — written in the
+  SAME transaction as the state change they describe. Indexed
+  `[jobRequestId, createdAt]`.
+- **`JobRequestAttachment.uploadedById`** records who added the file;
+  default `kind` is now `PHOTO` (the Phase 5 upload route is photos-only:
+  JPEG/PNG/WEBP ≤ 10 MB, SVG blocked, 'job-attachment' policy).
+- **Response semantics**: provider responds exactly once via actions
+  `respond_interested | respond_info | respond_declined`; business members
+  need OWNER or MANAGER membership on the provider's business to act
+  (MEMBER is read-only).
+- **Server-side validation**: services must genuinely belong to the targeted
+  provider (ACTIVE, available); community must belong to the chosen town;
+  title (10–120) and description (≥10) enforced at submit; preferred date
+  cannot be in the past.
+- **Notifications** (`Notification`): `JOB_REQUEST_NEW` → provider user on
+  submission; `JOB_REQUEST_RESPONSE` → customer on response — created in the
+  same transaction as the change that caused them.
+- **Analytics** (`DiscoveryEvent`): request_started, request_step_completed,
+  request_attachment_added, request_submitted, request_cancelled,
+  provider_request_viewed, provider_response — same privacy rules (no user
+  identifiers, no free text).
+
+Migration: `20260912150000_phase5_job_request_lifecycle`.
 
 ---
 
