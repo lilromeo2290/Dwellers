@@ -730,6 +730,9 @@ model Quote {
   validUntil            DateTime?
   estimatedDurationDays Int?
   terms                 String?
+  /// Provider quotation notes (PART 18, Phase 6) — plain text, ≤5,000 chars,
+  /// rendered safely (never HTML).
+  notes                 String?
   status                String    @default("DRAFT")
   submittedAt           DateTime?
   respondedAt           DateTime?

@@ -35,6 +35,11 @@ export const JOB_REQUEST_ACTIONS = [
   'respond_interested',
   'respond_declined',
   'respond_info',
+  // Phase 6 (PART 48) — the customer accepting a quotation moves the request
+  // forward to its existing ACCEPTED status. The transition is only invoked
+  // by the quote service inside the acceptance transaction; it is NOT a
+  // customer-facing API action on the request itself.
+  'accept_quote',
 ] as const
 
 export type JobRequestAction = (typeof JOB_REQUEST_ACTIONS)[number]
@@ -70,6 +75,10 @@ const TRANSITIONS: Record<JobRequestAction, Partial<Record<JobRequestActorKind, 
   respond_interested: { PROVIDER: ['SUBMITTED', 'MATCHING'] },
   respond_declined: { PROVIDER: ['SUBMITTED', 'MATCHING'] },
   respond_info: { PROVIDER: ['SUBMITTED', 'MATCHING'] },
+  // Phase 6 (PART 48): quote acceptance commits the engagement. Only from
+  // RESPONDED — a cancelled/declined/completed request can never accept a
+  // quote, and an already-accepted request cannot accept a second one.
+  accept_quote: { CUSTOMER: ['RESPONDED'] },
 }
 
 /** Statuses the customer may still edit request fields in. */
@@ -114,6 +123,8 @@ export function nextStatusFor(action: JobRequestAction): JobRequestStatus {
       return 'RESPONDED'
     case 'respond_declined':
       return 'DECLINED'
+    case 'accept_quote':
+      return 'ACCEPTED'
     case 'edit':
       // Editing does not move the request; the caller keeps the current status.
       return 'DRAFT'

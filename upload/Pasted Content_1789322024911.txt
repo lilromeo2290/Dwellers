@@ -1,0 +1,2726 @@
+DWELLERS — PHASE 6
+QUOTATIONS
+
+Product:
+DWELLERS
+
+Tagline:
+Find. Buy. Build.
+
+============================================================
+IMPORTANT PROJECT STATE
+============================================================
+
+You are continuing the existing DWELLERS project.
+
+DO NOT rebuild the application.
+
+DO NOT replace existing architecture.
+
+DO NOT duplicate existing systems.
+
+DO NOT create a second authentication system.
+
+DO NOT create a second provider system.
+
+DO NOT create a second location system.
+
+DO NOT create a second Job Request system.
+
+DO NOT create a second notification system.
+
+DO NOT create a second money system.
+
+DO NOT create a second audit system.
+
+============================================================
+COMPLETED PHASES
+============================================================
+
+PHASE 1 — FOUNDATION
+COMPLETE
+
+PHASE 2 — DATABASE & BACKEND
+COMPLETE
+
+PHASE 3 — AUTHENTICATION & ROLE DASHBOARDS
+COMPLETE
+
+PHASE 4 — FIND / NATIONWIDE DISCOVERY
+COMPLETE
+
+PHASE 5 — REQUEST SERVICE / JOB REQUESTS
+COMPLETE
+
+PHASE 6 — QUOTATIONS
+THIS IS THE ONLY PHASE TO IMPLEMENT NOW.
+
+The Phase 5 report confirms:
+
+- Job Request workflow is real and production-oriented.
+- Provider can receive and respond to requests.
+- Customer can see provider responses.
+- JobRequest state machine exists.
+- Quote and QuoteItem models already exist.
+- GH₵ money policy already exists.
+- Notification architecture exists.
+- Audit architecture exists.
+- Customer and provider request surfaces exist.
+- The quotation foundation is ready.
+
+The Phase 5 report specifically recommends:
+
+JOB REQUEST
+→ PROVIDER RESPONSE
+→ QUOTE
+→ CUSTOMER REVIEWS QUOTE
+→ ACCEPT OR DECLINE
+
+Payment and escrow are NOT part of this phase.
+
+============================================================
+PHASE 6 OBJECTIVE
+============================================================
+
+Build a complete, professional quotation workflow.
+
+The customer should be able to:
+
+1. Submit a service request.
+2. Provider receives request.
+3. Provider responds/interested.
+4. Provider creates a quotation.
+5. Provider adds quotation items.
+6. System calculates totals automatically.
+7. Provider sends quotation.
+8. Customer receives notification.
+9. Customer opens quotation.
+10. Customer reviews itemized pricing.
+11. Customer accepts or declines.
+12. Provider receives the decision.
+13. Job Request and quotation timeline are updated.
+14. The system prepares the accepted quotation for the
+    future payment phase.
+
+The complete Phase 6 flow is:
+
+JOB REQUEST
+      ↓
+PROVIDER RESPONSE
+      ↓
+CREATE QUOTE
+      ↓
+ADD QUOTE ITEMS
+      ↓
+CALCULATE TOTAL
+      ↓
+SEND QUOTE
+      ↓
+CUSTOMER NOTIFIED
+      ↓
+CUSTOMER REVIEWS
+      ↓
+ACCEPT / DECLINE
+      ↓
+PROVIDER NOTIFIED
+
+STOP THERE.
+
+DO NOT BUILD PAYMENT.
+
+============================================================
+PART 1 — INSPECT EXISTING CODE FIRST
+============================================================
+
+Before changing anything:
+
+Inspect:
+
+- Prisma schema
+- Quote model
+- QuoteItem model
+- JobRequest model
+- JobRequest state machine
+- JobRequest service
+- Provider dashboards
+- Customer dashboards
+- Notification model/service
+- AuditLog
+- money helpers
+- API handler factory
+- RBAC
+- permissions
+- storage
+- existing UI components
+- existing validation
+- existing tests
+
+Determine exactly what already exists.
+
+DO NOT assume.
+
+Reuse existing functionality wherever possible.
+
+Before implementation, provide a short internal
+implementation plan based on the actual codebase.
+
+============================================================
+PART 2 — QUOTE ELIGIBILITY
+============================================================
+
+A provider must not be able to create a quotation
+for an arbitrary Job Request.
+
+A provider may create a quote only when:
+
+- provider is authenticated
+- provider account is active
+- provider is authorized
+- Job Request exists
+- provider is the targeted provider
+- customer owns the request
+- request is in a quote-eligible state
+- provider has responded appropriately
+- request is not cancelled
+- request is not declined
+- request is not completed
+- request is not already committed to an incompatible
+  quotation state
+
+All rules must be enforced server-side.
+
+============================================================
+PART 3 — QUOTE CREATION
+============================================================
+
+Provider request page should include:
+
+[ CREATE QUOTE ]
+
+only when permitted.
+
+Quote creation should be connected directly to the
+Job Request.
+
+The provider should NOT have to re-enter:
+
+Customer
+
+Service
+
+Job Request
+
+Job location
+
+Those should come from the request.
+
+============================================================
+PART 4 — QUOTE FORM
+============================================================
+
+Create a professional quotation form.
+
+Header:
+
+CREATE QUOTATION
+
+Display:
+
+Customer
+Job Request
+Service
+Job
+Location
+
+Then:
+
+QUOTE ITEMS
+
+Each item should contain:
+
+Item type
+
+Description
+
+Quantity
+
+Unit
+
+Unit price
+
+Amount
+
+Suggested item types:
+
+LABOUR
+
+MATERIAL
+
+EQUIPMENT
+
+TRANSPORT
+
+OTHER
+
+Do not create unnecessary item types if the existing
+QuoteItem schema already defines a suitable structure.
+
+Inspect and reuse the existing schema.
+
+============================================================
+PART 5 — LABOUR
+============================================================
+
+Provider can add labour items.
+
+Example:
+
+Labour — Bathroom pipe repair
+
+Quantity:
+1
+
+Unit:
+Job
+
+Unit Price:
+GH₵ 350.00
+
+Amount:
+GH₵ 350.00
+
+Calculation:
+
+Quantity × Unit Price
+
+Server must calculate the amount.
+
+============================================================
+PART 6 — MATERIALS
+============================================================
+
+Provider can add materials.
+
+Example:
+
+PVC Pipe
+
+Quantity:
+4
+
+Unit:
+meters
+
+Unit Price:
+GH₵ 25.00
+
+Amount:
+GH₵ 100.00
+
+Another example:
+
+PVC Elbow
+
+Quantity:
+3
+
+Unit:
+pieces
+
+Unit Price:
+GH₵ 8.00
+
+Amount:
+GH₵ 24.00
+
+============================================================
+PART 7 — EQUIPMENT
+============================================================
+
+Provider can add equipment where applicable.
+
+Example:
+
+Pipe Cutter
+
+Quantity:
+1
+
+Unit:
+day
+
+Unit Price:
+GH₵ 50.00
+
+Amount:
+GH₵ 50.00
+
+============================================================
+PART 8 — TRANSPORT
+============================================================
+
+Allow transport/logistics where applicable.
+
+Example:
+
+Transportation
+
+Quantity:
+1
+
+Unit:
+trip
+
+Unit Price:
+GH₵ 80.00
+
+Amount:
+GH₵ 80.00
+
+============================================================
+PART 9 — OTHER COSTS
+============================================================
+
+Allow other legitimate costs.
+
+Example:
+
+Other
+
+Description:
+Site inspection
+
+Quantity:
+1
+
+Unit:
+service
+
+Unit Price:
+GH₵ 50.00
+
+============================================================
+PART 10 — DYNAMIC QUOTE ITEMS
+============================================================
+
+Provider must be able to:
+
+ADD ITEM
+
+REMOVE ITEM
+
+EDIT ITEM
+
+Recalculate totals immediately.
+
+Do not impose an unnecessarily small item limit.
+
+However, establish a reasonable configurable maximum
+to protect the system.
+
+============================================================
+PART 11 — QUANTITY
+============================================================
+
+Quantity must be validated.
+
+Do not allow:
+
+negative quantities
+
+zero quantities where invalid
+
+NaN
+
+Infinity
+
+unreasonably large values
+
+Use a precise numeric representation appropriate
+to the existing money/quantity architecture.
+
+============================================================
+PART 12 — UNIT PRICE
+============================================================
+
+Unit price must:
+
+- be non-negative
+- use integer pesewas internally
+- be validated server-side
+- never use floating-point arithmetic for money
+
+Example:
+
+GH₵ 350.00
+
+stored as:
+
+35000 pesewas
+
+============================================================
+PART 13 — SERVER-SIDE CALCULATION
+============================================================
+
+CRITICAL:
+
+The browser must NEVER be trusted to calculate:
+
+item amount
+
+subtotal
+
+discount
+
+total
+
+The client may display calculations for convenience.
+
+The server must recalculate everything from the
+submitted item data.
+
+Example:
+
+Quantity = 4
+
+Unit price = GH₵25.00
+
+Server calculates:
+
+4 × 2500
+=
+10000 pesewas
+
+NOT:
+
+clientAmount = 10000
+
+The client-supplied amount must be ignored or rejected.
+
+============================================================
+PART 14 — QUOTE SUBTOTAL
+============================================================
+
+Calculate:
+
+SUM(all quote item amounts)
+
+Example:
+
+Labour:
+GH₵350
+
+Materials:
+GH₵124
+
+Equipment:
+GH₵50
+
+Transport:
+GH₵80
+
+Subtotal:
+
+GH₵604
+
+The displayed total must exactly match the
+server-calculated value.
+
+============================================================
+PART 15 — DISCOUNT
+============================================================
+
+Inspect the existing Quote model.
+
+If discount is already supported:
+
+reuse it.
+
+If not:
+
+only add discount functionality if it is genuinely
+required by the existing quotation design.
+
+Prefer:
+
+fixed amount discount
+
+over percentage discount initially.
+
+If percentage discount is implemented:
+
+validate its maximum.
+
+Never allow:
+
+discount > subtotal
+
+unless explicitly supported by business rules.
+
+============================================================
+PART 16 — TAX / LEVIES
+============================================================
+
+DO NOT invent Ghana taxes or levies.
+
+If the existing quotation model does not support
+tax calculations, do not automatically add them.
+
+Do not assume VAT.
+
+Do not assume NHIL.
+
+Do not assume GETFund levy.
+
+Keep Phase 6 focused on quotation pricing.
+
+If tax configuration is required later, make it a
+separate controlled feature.
+
+============================================================
+PART 17 — QUOTE TOTAL
+============================================================
+
+Server calculates:
+
+SUBTOTAL
+- DISCOUNT
+= TOTAL
+
+Use integer pesewas.
+
+Example:
+
+Subtotal:
+GH₵604.00
+
+Discount:
+GH₵20.00
+
+Total:
+GH₵584.00
+
+The browser must never be able to force:
+
+TOTAL = GH₵1.00
+
+when the actual calculated total is GH₵584.00.
+
+============================================================
+PART 18 — QUOTE NOTES
+============================================================
+
+Allow provider to add quotation notes.
+
+Example:
+
+"Price includes labour and basic replacement
+materials. Additional materials discovered during
+inspection may require customer approval."
+
+Validate length.
+
+Recommended maximum:
+
+5,000 characters.
+
+Escape/render safely.
+
+No HTML injection.
+
+============================================================
+PART 19 — QUOTE TERMS
+============================================================
+
+Allow optional quotation terms.
+
+Examples:
+
+- What is included
+- What is excluded
+- Expected work duration
+- Materials assumptions
+- Warranty information
+- Payment terms
+
+Do not make payment occur in this phase.
+
+Payment terms are informational only.
+
+============================================================
+PART 20 — VALIDITY
+============================================================
+
+A provider should be able to specify:
+
+Quote valid until:
+
+DATE
+
+Example:
+
+30 September 2026
+
+Server must validate:
+
+expiry date cannot be invalid.
+
+Do not allow a quote to remain valid forever
+unless explicitly supported.
+
+============================================================
+PART 21 — QUOTE STATUS
+============================================================
+
+Inspect existing Quote status enum first.
+
+If the existing status model already supports the
+required lifecycle, preserve it.
+
+The quotation lifecycle should support, where
+compatible:
+
+DRAFT
+
+SENT
+
+VIEWED
+
+ACCEPTED
+
+DECLINED
+
+EXPIRED
+
+CANCELLED
+
+Do not duplicate an existing enum.
+
+============================================================
+PART 22 — QUOTE STATE MACHINE
+============================================================
+
+Create or extend ONE centralized quotation
+state machine.
+
+Conceptually:
+
+DRAFT
+ ↓
+SENT
+ ↓
+VIEWED
+ ↓
+ACCEPTED
+
+or:
+
+SENT
+ ↓
+DECLINED
+
+or:
+
+SENT
+ ↓
+EXPIRED
+
+or:
+
+DRAFT/SENT
+ ↓
+CANCELLED
+
+The exact states must be reconciled with the
+existing Quote model.
+
+Client must submit ACTIONS.
+
+Client must NOT directly submit:
+
+status = ACCEPTED
+
+The server determines the resulting state.
+
+============================================================
+PART 23 — PROVIDER ACTIONS
+============================================================
+
+Provider can:
+
+CREATE DRAFT
+
+EDIT DRAFT
+
+SEND QUOTE
+
+CANCEL QUOTE
+
+Where permitted.
+
+Provider cannot:
+
+accept own quote
+
+decline own quote
+
+change customer decision
+
+change quote status by arbitrary PATCH
+
+modify an accepted quote unless a defined
+revision workflow explicitly allows it.
+
+============================================================
+PART 24 — CUSTOMER ACTIONS
+============================================================
+
+Customer can:
+
+VIEW QUOTE
+
+ACCEPT QUOTE
+
+DECLINE QUOTE
+
+Where permitted.
+
+Customer cannot:
+
+edit quote items
+
+change prices
+
+change provider
+
+change subtotal
+
+change total
+
+change expiry
+
+change quote ownership
+
+change quote status directly
+
+============================================================
+PART 25 — QUOTE VIEW
+============================================================
+
+Create a professional customer quotation view.
+
+Example:
+
+--------------------------------------------
+
+DWELLERS QUOTATION
+
+Quote:
+QT-XXXXXX
+
+Provider:
+Kwame Plumbing Services
+
+Service:
+Plumbing
+
+Job:
+Fix leaking bathroom pipe
+
+Location:
+Nsawam
+
+--------------------------------------------
+
+LABOUR
+
+Bathroom pipe repair
+1 job
+GH₵350.00
+
+MATERIALS
+
+PVC Pipe
+4 metres
+GH₵100.00
+
+PVC Elbow
+3 pieces
+GH₵24.00
+
+TRANSPORT
+1 trip
+GH₵80.00
+
+--------------------------------------------
+
+SUBTOTAL
+GH₵554.00
+
+DISCOUNT
+GH₵20.00
+
+TOTAL
+GH₵534.00
+
+Valid Until:
+30 September 2026
+
+Notes:
+...
+
+[ ACCEPT QUOTE ]
+
+[ DECLINE QUOTE ]
+
+--------------------------------------------
+
+Use actual server data.
+
+============================================================
+PART 26 — PROVIDER QUOTE PREVIEW
+============================================================
+
+Before sending:
+
+show:
+
+QUOTE PREVIEW
+
+Allow:
+
+EDIT
+
+SEND QUOTE
+
+The provider must be able to verify the quotation
+before it becomes visible to the customer.
+
+============================================================
+PART 27 — QUOTE REFERENCE
+============================================================
+
+Every quote needs a professional reference.
+
+Example:
+
+QT-2026-000001
+
+or another safe existing reference strategy.
+
+Do not expose sequential database IDs unnecessarily.
+
+The reference must be unique.
+
+============================================================
+PART 28 — QUOTE VERSIONING
+============================================================
+
+Inspect whether the existing schema supports quote
+revision/versioning.
+
+Do NOT silently overwrite an already sent quote.
+
+If the existing model supports versions:
+
+use it.
+
+If it does not:
+
+do not build a complex versioning system unless
+required for correctness.
+
+At minimum:
+
+a SENT quote must not be silently edited.
+
+Future quote revision functionality can be a later
+phase if necessary.
+
+============================================================
+PART 29 — CUSTOMER ACCEPTANCE
+============================================================
+
+When customer clicks:
+
+ACCEPT QUOTE
+
+show confirmation:
+
+"Are you sure you want to accept this quotation?"
+
+Display:
+
+Total
+
+Provider
+
+Job
+
+Quote validity
+
+Then:
+
+[CONFIRM ACCEPTANCE]
+
+Server validates:
+
+- customer owns request
+- customer is quote recipient
+- quote is still valid
+- quote is in acceptable state
+- quote has not expired
+- request is not cancelled
+- no incompatible quote has already been accepted
+
+Then atomically:
+
+1. update quote state
+2. record event
+3. create audit event
+4. create notification
+5. update any compatible JobRequest state
+
+Use the existing state machine/business rules.
+
+============================================================
+PART 30 — CUSTOMER DECLINE
+============================================================
+
+When customer clicks:
+
+DECLINE QUOTE
+
+show confirmation.
+
+Optionally collect:
+
+Reason
+
+Example:
+
+"Price is above my budget."
+
+Do not make reason mandatory unless appropriate.
+
+Server changes status through the state machine.
+
+Record:
+
+timestamp
+
+actor
+
+role
+
+quote
+
+request
+
+reason where supplied
+
+============================================================
+PART 31 — QUOTE EXPIRY
+============================================================
+
+If quote validity is implemented:
+
+A quote past its validity date must not be accepted.
+
+Do not rely only on a background job.
+
+At acceptance time:
+
+server must check expiry.
+
+If expired:
+
+transition or treat it as EXPIRED according
+to the state machine.
+
+Customer must see:
+
+"Quotation expired."
+
+============================================================
+PART 32 — PROVIDER NOTIFICATION
+============================================================
+
+Provider receives notifications when:
+
+quote viewed
+
+quote accepted
+
+quote declined
+
+quote expired where appropriate
+
+Use the existing notification architecture.
+
+Do not create another notification table.
+
+============================================================
+PART 33 — CUSTOMER NOTIFICATION
+============================================================
+
+Customer receives:
+
+QUOTE_SENT
+
+Example:
+
+"Kwame Plumbing Services has sent you a quotation
+for your plumbing request."
+
+Do not send SMS/WhatsApp in this phase.
+
+In-app notification is sufficient.
+
+============================================================
+PART 34 — QUOTE TIMELINE
+============================================================
+
+Quote events should appear in the Job Request
+timeline where appropriate.
+
+Examples:
+
+QUOTE_CREATED
+
+QUOTE_SENT
+
+QUOTE_VIEWED
+
+QUOTE_ACCEPTED
+
+QUOTE_DECLINED
+
+QUOTE_EXPIRED
+
+QUOTE_CANCELLED
+
+Use the existing event architecture where possible.
+
+Do not create unnecessary duplicate timelines.
+
+============================================================
+PART 35 — AUDIT TRAIL
+============================================================
+
+Record important quotation actions.
+
+Examples:
+
+QUOTE_CREATED
+
+QUOTE_UPDATED
+
+QUOTE_SENT
+
+QUOTE_VIEWED
+
+QUOTE_ACCEPTED
+
+QUOTE_DECLINED
+
+QUOTE_EXPIRED
+
+QUOTE_CANCELLED
+
+QUOTE_ITEM_ADDED
+
+QUOTE_ITEM_UPDATED
+
+QUOTE_ITEM_REMOVED
+
+Record:
+
+actor
+
+role
+
+entity
+
+timestamp
+
+minimal safe metadata
+
+Never record:
+
+passwords
+
+secrets
+
+unnecessary personal information
+
+============================================================
+PART 36 — CUSTOMER DASHBOARD
+============================================================
+
+Add:
+
+MY QUOTATIONS
+
+or an appropriate section under:
+
+MY JOB REQUESTS
+
+Customer should be able to see:
+
+Quote reference
+
+Provider
+
+Service
+
+Job
+
+Total
+
+Status
+
+Date
+
+Validity
+
+Open Quote
+
+Example:
+
+QT-2026-000001
+Kwame Plumbing Services
+GH₵534.00
+SENT
+
+[VIEW QUOTE]
+
+============================================================
+PART 37 — PROVIDER DASHBOARD
+============================================================
+
+Add:
+
+QUOTATIONS
+
+or integrate appropriately into:
+
+JOB REQUESTS
+
+Provider should see:
+
+Draft
+
+Sent
+
+Viewed
+
+Accepted
+
+Declined
+
+Expired
+
+Cancelled
+
+Each should show:
+
+Quote reference
+
+Customer display name
+
+Job
+
+Total
+
+Created date
+
+Status
+
+============================================================
+PART 38 — QUOTE FILTERS
+============================================================
+
+Provider/customer may filter:
+
+All
+
+Draft
+
+Sent
+
+Viewed
+
+Accepted
+
+Declined
+
+Expired
+
+Cancelled
+
+Use server-side filtering.
+
+============================================================
+PART 39 — QUOTE SEARCH
+============================================================
+
+Where appropriate allow search by:
+
+Quote reference
+
+Job title
+
+Provider/customer display name
+
+Do not expose private information to unauthorized
+users.
+
+============================================================
+PART 40 — API
+============================================================
+
+Inspect existing Quote API routes before creating
+new routes.
+
+Extend existing routes where possible.
+
+Possible architecture:
+
+POST /api/quotes
+
+GET /api/quotes
+
+GET /api/quotes/[id]
+
+PATCH /api/quotes/[id]
+
+POST /api/quotes/[id]/send
+
+POST /api/quotes/[id]/accept
+
+POST /api/quotes/[id]/decline
+
+POST /api/quotes/[id]/cancel
+
+Use the project's existing route conventions.
+
+Do not create duplicate endpoints.
+
+============================================================
+PART 41 — API SECURITY PIPELINE
+============================================================
+
+Every quotation endpoint must use:
+
+RATE LIMIT
+
+→ AUTHENTICATION
+
+→ LIVE ACCOUNT STATUS
+
+→ RBAC
+
+→ ZOD VALIDATION
+
+→ OWNERSHIP
+
+→ QUOTE ELIGIBILITY
+
+→ STATE MACHINE
+
+→ DATABASE TRANSACTION
+
+→ AUDIT
+
+→ NOTIFICATION
+
+→ STANDARD RESPONSE
+
+============================================================
+PART 42 — QUOTE CREATION SECURITY
+============================================================
+
+A malicious provider must not be able to submit:
+
+customerId
+
+providerId
+
+jobRequestId
+
+total
+
+subtotal
+
+status
+
+as arbitrary trusted values.
+
+The server must resolve:
+
+customer
+
+provider
+
+job request
+
+service
+
+ownership
+
+from authorized database records.
+
+============================================================
+PART 43 — IDOR TESTS
+============================================================
+
+Test:
+
+Customer A views Customer B's quote.
+
+Customer A accepts Customer B's quote.
+
+Customer A declines Customer B's quote.
+
+Provider A views Provider B's quote.
+
+Provider A edits Provider B's quote.
+
+Provider A sends Provider B's quote.
+
+Provider A cancels Provider B's quote.
+
+Customer changes quote provider ID.
+
+Customer changes quote total.
+
+Provider changes quote customer ID.
+
+All unauthorized operations must fail safely.
+
+Expected:
+
+403 or 404.
+
+Never:
+
+200.
+
+Never:
+
+500.
+
+============================================================
+PART 44 — PRICE TAMPERING TESTS
+============================================================
+
+Create quote:
+
+Labour:
+1 × GH₵350
+
+Materials:
+4 × GH₵25
+
+Browser sends fake:
+
+amount = GH₵1
+
+subtotal = GH₵1
+
+total = GH₵1
+
+EXPECTED:
+
+Server ignores/rejects fake calculated values.
+
+Correct server total remains:
+
+GH₵450
+
+depending on actual quote items.
+
+============================================================
+PART 45 — MONEY TESTS
+============================================================
+
+Test:
+
+GH₵0.01
+
+GH₵1.00
+
+GH₵100.00
+
+GH₵999,999.99
+
+Multiple items
+
+Discount
+
+Large quantities
+
+Decimal input
+
+Negative price
+
+Negative discount
+
+NaN
+
+Infinity
+
+All must behave correctly.
+
+No floating-point money calculations.
+
+============================================================
+PART 46 — DUPLICATE SUBMISSION
+============================================================
+
+Provider double-clicks:
+
+SEND QUOTE
+
+EXPECTED:
+
+Only one send transition.
+
+Only one customer notification.
+
+Only one corresponding timeline event.
+
+Use safe idempotency where appropriate.
+
+============================================================
+PART 47 — ACCEPTANCE RACE CONDITION
+============================================================
+
+Test two customer requests:
+
+Accept quote
+
+at almost exactly the same time.
+
+The system must not produce conflicting outcomes.
+
+Use transaction/locking strategy appropriate to
+the database architecture.
+
+Only one valid acceptance should win.
+
+============================================================
+PART 48 — QUOTE ACCEPTANCE AND JOB REQUEST
+============================================================
+
+Inspect the existing JobRequest state machine.
+
+Do NOT arbitrarily change it.
+
+Determine the correct relationship between:
+
+QUOTE_ACCEPTED
+
+and
+
+JOB_REQUEST state.
+
+If the current state machine does not have an
+appropriate transition:
+
+document the required transition and implement
+only if necessary.
+
+Do not break Phase 5 behavior.
+
+============================================================
+PART 49 — MULTIPLE QUOTES
+============================================================
+
+The product is intended to evolve toward customers
+being able to receive quotations from providers.
+
+Inspect the existing model.
+
+Support multiple quotations against a Job Request
+if the schema/business rules already allow it.
+
+If multiple quotes are allowed:
+
+Customer should be able to distinguish:
+
+Provider
+
+Quote reference
+
+Total
+
+Items
+
+Validity
+
+Status
+
+The customer should not accidentally accept
+the wrong quotation.
+
+============================================================
+PART 50 — COMPARISON FOUNDATION
+============================================================
+
+Prepare the customer interface for comparing
+quotes from multiple providers.
+
+For Phase 6:
+
+A simple list/table is sufficient.
+
+Example:
+
+| Provider | Total | Valid Until | Status |
+
+Do not build an advanced AI comparison engine.
+
+Do not rank providers based only on price.
+
+============================================================
+PART 51 — NO PAYMENT
+============================================================
+
+THIS IS CRITICAL.
+
+DO NOT IMPLEMENT:
+
+Payment gateway
+
+Mobile Money
+
+Card payment
+
+Bank transfer
+
+Escrow
+
+Wallet
+
+Checkout
+
+Payment confirmation
+
+Refund
+
+Commission
+
+Platform fee collection
+
+These belong to a future payment/commerce phase.
+
+An accepted quote means:
+
+CUSTOMER ACCEPTED THE QUOTATION.
+
+It does NOT mean:
+
+PAYMENT COMPLETED.
+
+============================================================
+PART 52 — NO WHATSAPP/SMS
+============================================================
+
+Do not make WhatsApp or SMS a dependency.
+
+Use existing in-app notifications.
+
+The notification architecture should remain ready
+for future:
+
+SMS
+
+WhatsApp
+
+Email
+
+============================================================
+PART 53 — RESPONSIVE DESIGN
+============================================================
+
+Test:
+
+390px mobile
+
+768px tablet
+
+1440px desktop
+
+Quotation creation must be comfortable on mobile.
+
+Provider quote form:
+
+Item description
+Quantity
+Unit
+Price
+Amount
+
+must not cause horizontal overflow.
+
+Use cards or stacked layouts on mobile.
+
+Desktop may use a professional table.
+
+============================================================
+PART 54 — DESIGN
+============================================================
+
+Maintain Dwellers branding.
+
+Use existing:
+
+Forest Green
+
+Gold
+
+Typography
+
+Spacing
+
+Components
+
+Buttons
+
+Cards
+
+Form controls
+
+The quotation should look professional enough
+to be shown to a real Ghanaian customer.
+
+Avoid excessive decoration.
+
+Focus on clarity.
+
+============================================================
+PART 55 — GH₵ DISPLAY
+============================================================
+
+Display:
+
+GH₵350.00
+
+not:
+
+35000
+
+The database stores:
+
+35000 pesewas
+
+The UI displays:
+
+GH₵350.00
+
+Use the existing money formatter.
+
+Do not create another formatter.
+
+============================================================
+PART 56 — PRINT / PDF FOUNDATION
+============================================================
+
+Prepare the quotation page so it can later support:
+
+Print
+
+PDF
+
+Download
+
+However:
+
+DO NOT create a complex PDF generation system
+unless already available.
+
+A print-friendly quotation view is acceptable.
+
+Future phase can provide formal PDF documents.
+
+============================================================
+PART 57 — QUOTE DOCUMENT QUALITY
+============================================================
+
+The customer should clearly see:
+
+DWELLERS
+
+QUOTATION
+
+Quote Reference
+
+Date
+
+Valid Until
+
+Provider
+
+Customer
+
+Job
+
+Location
+
+Items
+
+Subtotal
+
+Discount
+
+Total
+
+Notes
+
+Status
+
+Actions
+
+This should feel like a professional business
+quotation, not a developer dashboard.
+
+============================================================
+PART 58 — ACCESSIBILITY
+============================================================
+
+Use:
+
+proper labels
+
+keyboard navigation
+
+focus states
+
+accessible confirmation dialogs
+
+accessible tables
+
+mobile touch targets
+
+status text
+
+Do not rely only on color.
+
+============================================================
+PART 59 — ERROR HANDLING
+============================================================
+
+Examples:
+
+"You cannot create a quotation for this request."
+
+"This quotation has already been sent."
+
+"This quotation has expired."
+
+"You cannot accept this quotation."
+
+"The quotation could not be sent."
+
+"One or more quote items are invalid."
+
+"Unit price cannot be negative."
+
+Do not expose stack traces or database internals.
+
+============================================================
+PART 60 — PERFORMANCE
+============================================================
+
+Avoid N+1 queries.
+
+Use Prisma efficiently.
+
+Use existing indexes.
+
+Load only fields needed by the UI.
+
+Quote detail should load:
+
+quote
+
+items
+
+provider
+
+customer display information
+
+job request
+
+timeline/events
+
+in an efficient fixed query pattern.
+
+Use pagination for quote lists.
+
+============================================================
+PART 61 — DATABASE
+============================================================
+
+FIRST inspect:
+
+Quote
+
+QuoteItem
+
+JobRequest
+
+JobRequestEvent
+
+Notification
+
+AuditLog
+
+ProviderProfile
+
+Business
+
+BusinessMember
+
+User
+
+existing relations.
+
+Reuse existing models.
+
+Only create migrations where genuinely necessary.
+
+If schema changes are required:
+
+- migration
+- seed updates if needed
+- clean database test
+- regression tests
+- documentation
+
+============================================================
+PART 62 — DATA INTEGRITY
+============================================================
+
+A quotation must always belong to:
+
+ONE Job Request
+
+ONE Provider
+
+ONE Customer/Request owner
+
+unless the existing architecture deliberately models
+these relations differently.
+
+Prevent orphan quotations.
+
+Prevent quote items without quotes.
+
+Prevent quote acceptance without a valid quote.
+
+Prevent quote items with invalid monetary values.
+
+============================================================
+PART 63 — BUSINESS PROVIDERS
+============================================================
+
+Business providers must respect:
+
+BusinessMember
+
+Owner
+
+Manager
+
+Member
+
+permissions.
+
+Only authorized members may:
+
+create quote
+
+edit draft
+
+send quote
+
+cancel quote
+
+according to existing permissions.
+
+A plain business member must not automatically
+receive owner-level quotation permissions.
+
+============================================================
+PART 64 — SUSPENDED PROVIDERS
+============================================================
+
+If provider becomes suspended:
+
+They must not:
+
+create new quotes
+
+send quotes
+
+modify protected quotation data
+
+unless existing account-status rules explicitly
+permit a specific action.
+
+Use live account-status checks.
+
+============================================================
+PART 65 — CUSTOMER ACCOUNT STATUS
+============================================================
+
+If customer account becomes suspended:
+
+apply the existing account-status policy.
+
+Do not create a separate account-status system.
+
+============================================================
+PART 66 — AUDITABLE TIMELINE
+============================================================
+
+Every important quotation action must be traceable.
+
+Example:
+
+JOB REQUEST SUBMITTED
+↓
+PROVIDER RESPONDED
+↓
+QUOTE CREATED
+↓
+QUOTE SENT
+↓
+QUOTE VIEWED
+↓
+QUOTE ACCEPTED
+
+The timeline should be based on actual events.
+
+Never fabricate events.
+
+============================================================
+PART 67 — ACCEPTANCE TEST 1
+============================================================
+
+Provider:
+
+Kwame Plumbing Services
+
+Job:
+
+Fix leaking bathroom pipe
+
+Location:
+
+Nsawam
+
+Create quote:
+
+LABOUR
+1 × GH₵350
+
+MATERIAL
+4 × GH₵25
+
+TRANSPORT
+1 × GH₵80
+
+Expected:
+
+Subtotal:
+
+GH₵530
+
+Server calculation:
+
+35000
++
+10000
++
+8000
+=
+53000 pesewas
+
+Quote total:
+
+GH₵530.00
+
+============================================================
+PART 68 — ACCEPTANCE TEST 2
+============================================================
+
+Provider sends quote.
+
+Expected:
+
+Quote status:
+
+SENT
+
+Customer receives:
+
+in-app notification
+
+Timeline:
+
+QUOTE_SENT
+
+Provider cannot send the same quote again.
+
+============================================================
+PART 69 — ACCEPTANCE TEST 3
+============================================================
+
+Customer opens quote.
+
+Expected:
+
+Quote status becomes:
+
+VIEWED
+
+or records the appropriate view event according
+to the existing state model.
+
+Provider can see that the quote was viewed.
+
+============================================================
+PART 70 — ACCEPTANCE TEST 4
+============================================================
+
+Customer accepts quote.
+
+Expected:
+
+Quote status:
+
+ACCEPTED
+
+Timeline:
+
+QUOTE_ACCEPTED
+
+Provider notification:
+
+created
+
+Audit:
+
+created
+
+No payment occurs.
+
+============================================================
+PART 71 — ACCEPTANCE TEST 5
+============================================================
+
+Customer declines quote.
+
+Expected:
+
+Quote status:
+
+DECLINED
+
+Provider notification:
+
+created
+
+Timeline:
+
+QUOTE_DECLINED
+
+No payment occurs.
+
+============================================================
+PART 72 — ACCEPTANCE TEST 6
+============================================================
+
+Provider attempts to modify a SENT quote.
+
+Expected:
+
+Rejected unless existing revision rules explicitly
+permit the operation.
+
+No silent price change.
+
+============================================================
+PART 73 — ACCEPTANCE TEST 7
+============================================================
+
+Customer attempts:
+
+PATCH quote total = GH₵1
+
+Expected:
+
+Rejected or ignored.
+
+Database total remains server-calculated.
+
+============================================================
+PART 74 — ACCEPTANCE TEST 8
+============================================================
+
+Quote expires.
+
+Customer attempts:
+
+ACCEPT
+
+Expected:
+
+Rejected.
+
+Quote becomes or remains:
+
+EXPIRED
+
+according to the state machine.
+
+============================================================
+PART 75 — ACCEPTANCE TEST 9
+============================================================
+
+Provider A attempts to quote on Provider B's request.
+
+Expected:
+
+403 or 404.
+
+No quote created.
+
+============================================================
+PART 76 — ACCEPTANCE TEST 10
+============================================================
+
+Customer A attempts to view Customer B's quote.
+
+Expected:
+
+403 or 404.
+
+No private quotation data exposed.
+
+============================================================
+PART 77 — ACCEPTANCE TEST 11
+============================================================
+
+Provider double-clicks:
+
+SEND QUOTE
+
+Expected:
+
+One quote send action.
+
+One notification.
+
+One timeline event.
+
+============================================================
+PART 78 — ACCEPTANCE TEST 12
+============================================================
+
+Customer accepts a quote.
+
+At the same time another request attempts
+to change the quote state.
+
+Expected:
+
+No inconsistent final state.
+
+Transaction/state-machine protection works.
+
+============================================================
+PART 79 — BROWSER E2E
+============================================================
+
+Run the real workflow:
+
+CUSTOMER
+
+1. Login.
+2. Open My Job Requests.
+3. Open eligible request.
+4. See provider response.
+5. Wait for quotation.
+
+PROVIDER
+
+6. Login.
+7. Open Job Requests.
+8. Open eligible request.
+9. Click Create Quote.
+10. Add labour.
+11. Add materials.
+12. Add transport.
+13. Add notes.
+14. Set validity date.
+15. Review totals.
+16. Send quote.
+
+CUSTOMER
+
+17. Receive notification.
+18. Open quote.
+19. Review provider.
+20. Review job.
+21. Review all items.
+22. Review subtotal.
+23. Review total.
+24. Review validity.
+25. Accept quote.
+
+PROVIDER
+
+26. Receive acceptance notification.
+27. Open quotation.
+28. See ACCEPTED status.
+
+Test at:
+
+390px
+
+768px
+
+1440px
+
+Expected:
+
+ZERO critical console errors.
+
+ZERO horizontal overflow.
+
+============================================================
+PART 80 — QUOTE DECLINE E2E
+============================================================
+
+Repeat quote flow.
+
+Customer:
+
+DECLINE QUOTE
+
+Add optional reason.
+
+Expected:
+
+Customer sees:
+
+DECLINED
+
+Provider sees:
+
+DECLINED
+
+Provider receives notification.
+
+Timeline updated.
+
+============================================================
+PART 81 — TEST COMMAND
+============================================================
+
+Create:
+
+bun run verify:phase6
+
+It must test:
+
+- quote creation
+- quote item creation
+- calculation
+- money handling
+- discounts if implemented
+- quote validation
+- quote eligibility
+- quote status
+- quote state machine
+- sending
+- viewing
+- acceptance
+- decline
+- expiry
+- cancellation
+- notifications
+- audit
+- ownership
+- IDOR
+- price tampering
+- duplicate send
+- race conditions
+- business permissions
+- suspension
+- previous phase regression
+
+============================================================
+PART 82 — PREVIOUS PHASE REGRESSION
+============================================================
+
+Run:
+
+bun run lint
+
+tsc --noEmit
+
+bun run verify
+
+bun run verify:phase2
+
+bun run verify:phase3
+
+bun run verify:phase4
+
+bun run verify:phase5
+
+bun run verify:phase6
+
+ALL MUST PASS.
+
+Do not declare Phase 6 complete if any previous
+phase regresses.
+
+============================================================
+PART 83 — CLEAN DATABASE TEST
+============================================================
+
+Rebuild the database from migrations.
+
+Seed.
+
+Run:
+
+Phase 1
+
+Phase 2
+
+Phase 3
+
+Phase 4
+
+Phase 5
+
+Phase 6
+
+verification.
+
+Confirm:
+
+Discovery works.
+
+Job requests work.
+
+Provider responses work.
+
+Quotation works.
+
+============================================================
+PART 84 — DOCUMENTATION
+============================================================
+
+Create/update:
+
+QUOTATIONS.md
+
+ARCHITECTURE.md
+
+DATABASE.md
+
+README.md
+
+API documentation
+
+Document:
+
+- quote lifecycle
+- quote state machine
+- quote item types
+- calculation rules
+- GH₵ money policy
+- provider permissions
+- customer permissions
+- business permissions
+- expiry
+- notifications
+- audit events
+- security
+- IDOR protection
+- future payment handoff
+
+============================================================
+PART 85 — FUTURE PAYMENT HANDOFF
+============================================================
+
+The final quotation workflow should end at:
+
+QUOTE ACCEPTED
+
+Then prepare a clean boundary:
+
+ACCEPTED QUOTE
+      ↓
+PAYMENT PHASE
+
+The payment phase will later handle:
+
+Mobile Money
+
+Cards
+
+Bank payments
+
+Escrow
+
+Platform fees
+
+Payment confirmation
+
+Receipts
+
+Refunds
+
+Do NOT implement these now.
+
+============================================================
+PART 86 — PHASE 6 COMPLETION STANDARD
+============================================================
+
+Phase 6 is COMPLETE only when:
+
+✓ Provider can create quotation
+
+✓ Provider can add items
+
+✓ Labour supported
+
+✓ Materials supported
+
+✓ Equipment supported where model supports it
+
+✓ Transport supported
+
+✓ Other costs supported
+
+✓ Quantity validation works
+
+✓ Unit price validation works
+
+✓ Server calculates item totals
+
+✓ Server calculates subtotal
+
+✓ Server calculates total
+
+✓ GH₵ money policy preserved
+
+✓ Quote notes work
+
+✓ Quote validity works
+
+✓ Quote reference works
+
+✓ Quote state machine works
+
+✓ Provider can send quote
+
+✓ Customer receives notification
+
+✓ Customer can view quote
+
+✓ Customer can accept quote
+
+✓ Customer can decline quote
+
+✓ Provider receives decision notification
+
+✓ Timeline records events
+
+✓ Audit trail records events
+
+✓ Quote ownership is protected
+
+✓ IDOR tests pass
+
+✓ Price tampering tests pass
+
+✓ Duplicate submission protection works
+
+✓ Expiry protection works
+
+✓ Race condition protection works
+
+✓ Business permissions work
+
+✓ Suspended provider protection works
+
+✓ Previous phases remain green
+
+✓ TypeScript passes
+
+✓ ESLint passes
+
+✓ Clean database test passes
+
+✓ Browser E2E passes
+
+✓ Mobile passes
+
+✓ Tablet passes
+
+✓ Desktop passes
+
+✓ Documentation updated
+
+✓ Git working tree clean
+
+============================================================
+PART 87 — FINAL REPORT
+============================================================
+
+When complete, create:
+
+DWELLERS — PHASE 6 QUOTATIONS REPORT
+
+Include:
+
+1. Executive Summary
+
+2. Objective
+
+3. Scope
+
+4. Existing Quote Foundation
+
+5. Quote Architecture
+
+6. Quote State Machine
+
+7. Quote Creation Workflow
+
+8. Quote Item Structure
+
+9. Labour
+
+10. Materials
+
+11. Equipment
+
+12. Transport
+
+13. Other Costs
+
+14. Calculation Algorithm
+
+15. GH₵ Money Handling
+
+16. Quote Validity
+
+17. Customer Workflow
+
+18. Provider Workflow
+
+19. Notifications
+
+20. Timeline
+
+21. Audit Trail
+
+22. API Endpoints
+
+23. Database Changes
+
+24. Security
+
+25. IDOR Tests
+
+26. Price Tampering Tests
+
+27. Permission Tests
+
+28. Expiry Tests
+
+29. Duplicate Submission Tests
+
+30. Race Condition Tests
+
+31. Browser E2E
+
+32. Mobile Results
+
+33. Tablet Results
+
+34. Desktop Results
+
+35. Performance
+
+36. Known Issues
+
+37. Deferred Features
+
+38. Git Commits
+
+39. Exact Test Counts
+
+40. Phase 7 Recommendation
+
+DO NOT invent test results.
+
+Use actual results only.
+
+============================================================
+FINAL RULE
+============================================================
+
+WORK ONLY ON PHASE 6.
+
+Do not start payment.
+
+Do not start escrow.
+
+Do not start checkout.
+
+Do not start WhatsApp.
+
+Do not start SMS.
+
+Do not start advanced messaging.
+
+Do not start equipment rental.
+
+Do not start project management.
+
+Do not start AI recommendations.
+
+Do not rebuild Phases 1–5.
+
+Use the existing Dwellers architecture.
+
+Use the existing Quote and QuoteItem foundation.
+
+Use the existing JobRequest workflow.
+
+Use the existing notification system.
+
+Use the existing audit system.
+
+Use the existing GH₵ money policy.
+
+When Phase 6 is fully verified:
+
+STOP.
+
+DO NOT START PHASE 7.
+
+WAIT FOR PROJECT OWNER APPROVAL.

@@ -181,6 +181,16 @@ export const DISCOVERY_EVENT_TYPES = [
   'request_cancelled',
   'provider_request_viewed',
   'provider_response',
+  // Phase 6 (PART 35/66) — quotation funnel, same privacy-safe pipeline
+  // (IDs only, no user identifiers, no free text).
+  'quote_created',
+  'quote_updated',
+  'quote_sent',
+  'quote_viewed',
+  'quote_accepted',
+  'quote_declined',
+  'quote_expired',
+  'quote_withdrawn',
 ] as const
 
 export type DiscoveryEventType = (typeof DISCOVERY_EVENT_TYPES)[number]

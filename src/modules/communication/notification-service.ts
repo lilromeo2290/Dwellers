@@ -25,6 +25,12 @@ export const NOTIFICATION_TYPES = {
   // Phase 5 — job-request lifecycle (PART 33/34/63).
   JOB_REQUEST_NEW: 'JOB_REQUEST_NEW',
   JOB_REQUEST_RESPONSE: 'JOB_REQUEST_RESPONSE',
+  // Phase 6 — quotation lifecycle (PART 32/33). In-app only; SMS/WhatsApp/
+  // email stay future work behind this same architecture.
+  QUOTE_SENT: 'QUOTE_SENT',
+  QUOTE_VIEWED: 'QUOTE_VIEWED',
+  QUOTE_ACCEPTED: 'QUOTE_ACCEPTED',
+  QUOTE_DECLINED: 'QUOTE_DECLINED',
 } as const
 
 export interface CreateNotificationInput {

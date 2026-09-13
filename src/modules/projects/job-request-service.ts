@@ -191,7 +191,18 @@ export interface RequestAccess {
  * Loads a request and resolves the caller's relationship to it. Foreign
  * callers receive the same opaque 404 as anonymous probes — the existence of
  * a request is never disclosed (PART 49/52).
+ *
+ * Exported for the Phase 6 quotation service: quote eligibility (PART 2) is
+ * defined against the SAME access resolution — the targeted provider side,
+ * resolved through BusinessMember roles — so both modules share one
+ * implementation instead of drifting apart.
  */
+export async function resolveJobRequestAccess(
+  auth: AuthContext | null,
+  id: string,
+): Promise<RequestAccess> {
+  return resolveAccess(auth, id)
+}
 async function resolveAccess(auth: AuthContext | null, id: string): Promise<RequestAccess> {
   const context = requireAuth(auth)
   const request = await db.jobRequest.findUnique({
@@ -744,7 +755,7 @@ export async function getJobRequest(auth: AuthContext | null, id: string) {
 }
 
 /** "Raymond A." — enough to feel human, not enough to expose identity. */
-function displayNameInitial(name: string | null): string {
+export function displayNameInitial(name: string | null): string {
   const parts = (name ?? '')
     .trim()
     .split(/\s+/)

@@ -97,7 +97,7 @@ await check('dashboard groups expand to the right statuses (PART 28)', () => {
   expect(state.statusesForGroup('NEW').includes('SUBMITTED'), 'NEW includes SUBMITTED')
   expect(state.statusesForGroup('DECLINED').includes('DECLINED'), 'DECLINED group')
   expect(state.statusesForGroup('CANCELLED').includes('CANCELLED'), 'CANCELLED group')
-  expect(JOB_REQUEST_ACTIONS.length === 6, 'six actions')
+  expect(JOB_REQUEST_ACTIONS.length === 7, "seven actions")
 })
 
 await check('customer may submit a DRAFT', () => {
