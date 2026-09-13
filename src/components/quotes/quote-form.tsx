@@ -55,14 +55,17 @@ function emptyRow(): ItemRow {
   return { key: crypto.randomUUID(), kind: 'LABOUR', name: '', quantity: '1', unit: '', unitPrice: '' }
 }
 
-/** Client-side mirror of the server calculation — display convenience only. */
+/** Client-side mirror of the server calculation — display convenience only.
+ * Returns integer PESEWAS, exactly like finance.lineTotalAmount. */
 function rowAmount(row: ItemRow): number | null {
   const quantity = Number.parseFloat(row.quantity)
   const unitPrice = Number.parseFloat(row.unitPrice)
   if (!Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(unitPrice) || unitPrice < 0) {
     return null
   }
-  return Math.round(quantity * 1000 * unitPrice) / 100
+  const quantityMilli = Math.round(quantity * 1000)
+  const unitPriceAmount = Math.round(unitPrice * 100)
+  return Math.round((quantityMilli * unitPriceAmount) / 1000)
 }
 
 export interface QuoteFormInitial {
@@ -113,12 +116,13 @@ export function QuoteForm({
     const amounts = rows.map(rowAmount)
     const subtotal = amounts.reduce<number>((sum, amount) => sum + (amount ?? 0), 0)
     const discountValue = Number.parseFloat(discount)
-    const discountAmount = Number.isFinite(discountValue) && discountValue > 0 ? discountValue : 0
+    const discountAmount =
+      Number.isFinite(discountValue) && discountValue > 0 ? Math.round(discountValue * 100) : 0
     return {
       amounts,
       subtotal,
       discountAmount,
-      total: Math.max(0, Math.round((subtotal - discountAmount) * 100) / 100),
+      total: Math.max(0, subtotal - discountAmount),
       rowsValid: rows.length > 0 && rows.every((row, index) => amounts[index] !== null && row.name.trim().length > 0),
     }
   }, [rows, discount])
@@ -140,7 +144,11 @@ export function QuoteForm({
       errors.validUntil = ['Choose the date this quotation is valid until.']
     }
     const discountValue = Number.parseFloat(discount)
-    if (Number.isFinite(discountValue) && discountValue > 0 && discountValue > preview.subtotal) {
+    if (
+      Number.isFinite(discountValue) &&
+      discountValue > 0 &&
+      Math.round(discountValue * 100) > preview.subtotal
+    ) {
       errors.discount = ['Discount cannot be greater than the quotation subtotal.']
     }
     setFieldErrors(errors)
@@ -517,18 +525,18 @@ export function QuoteForm({
               <div className="space-y-1.5 border-t pt-3 text-sm">
                 <div className="flex justify-between text-muted-foreground">
                   <span>Subtotal</span>
-                  <span className="font-mono tabular-nums">{formatCedi(Math.round(preview.subtotal * 100))}</span>
+                  <span className="font-mono tabular-nums">{formatCedi(preview.subtotal)}</span>
                 </div>
                 {preview.discountAmount > 0 && (
                   <div className="flex justify-between text-muted-foreground">
                     <span>Discount</span>
-                    <span className="font-mono tabular-nums">−{formatCedi(Math.round(preview.discountAmount * 100))}</span>
+                    <span className="font-mono tabular-nums">−{formatCedi(preview.discountAmount)}</span>
                   </div>
                 )}
                 <div className="flex justify-between text-base font-semibold">
                   <span>Total</span>
                   <span className="font-mono tabular-nums" data-testid="preview-total">
-                    {formatCedi(Math.round(preview.total * 100))}
+                    {formatCedi(preview.total)}
                   </span>
                 </div>
               </div>

@@ -127,8 +127,9 @@ export const createQuoteSchema = z.object({
     .array(quoteItemInputSchema)
     .min(1, 'Add at least one quote item')
     .max(MAX_QUOTE_ITEMS, `A quotation can hold at most ${MAX_QUOTE_ITEMS} items`),
-  /** Fixed-amount discount in cedis (PART 15 — no percentage discounts). */
-  discount: finiteMoneyCedis.optional(),
+  /** Fixed-amount discount in cedis (PART 15 — no percentage discounts).
+   * null clears the discount (draft-edit semantics). */
+  discount: finiteMoneyCedis.nullable().optional(),
   /** Required business window (PART 20 — never valid forever). */
   validUntil: z.coerce
     .date()
