@@ -11,11 +11,13 @@ import { notFound } from 'next/navigation'
 import { CheckCircle2, ChevronLeft } from 'lucide-react'
 import { getAuthContext } from '@/lib/auth/session'
 import { getJobRequest } from '@/modules/projects/job-request-service'
+import { listRequestQuotes } from '@/modules/quotes/quote-service'
 import { NotFoundError } from '@/lib/errors'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { RequestStatusBadge, nextStepCopy } from '@/components/requests/status-badge'
 import { RequestTimeline } from '@/components/requests/timeline'
 import { CustomerRequestActions } from '@/components/requests/customer-request-actions'
+import { RequestQuotesPanel } from '@/components/quotes/request-quotes-panel'
 
 export const dynamic = 'force-dynamic'
 
@@ -51,6 +53,9 @@ export default async function CustomerRequestDetailPage({
   const responseEvent = [...request.events]
     .reverse()
     .find((event) => event.eventType.startsWith('RESPONSE_'))
+
+  // Phase 6 (PART 49/50): every quotation on this request, side by side.
+  const quotes = await listRequestQuotes(auth, id)
 
   const locationLine = [
     request.community?.name,
@@ -182,6 +187,11 @@ export default async function CustomerRequestDetailPage({
               </CardContent>
             </Card>
           )}
+
+          <RequestQuotesPanel
+            quotes={quotes}
+            showWhenEmpty={request.status === 'RESPONDED' && request.responseKind === 'INTERESTED'}
+          />
         </div>
 
         <div className="space-y-6 lg:col-span-2">

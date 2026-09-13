@@ -1,15 +1,18 @@
 /**
- * Dwellers — Customer dashboard (PART 18, Phase 5 update).
- * Real data: request activity and live discovery entry points.
+ * Dwellers — Customer dashboard (PART 18, Phase 6 update).
+ * Real data: request activity, live quotations and discovery entry points.
  */
 import Link from 'next/link'
 import { getAuthContext } from '@/lib/auth/session'
 import { getOwnProfileBundle } from '@/modules/identity/profile-service'
 import { listJobRequests } from '@/modules/projects/job-request-service'
+import { listQuotes } from '@/modules/quotes/quote-service'
 import { WelcomeHeader, CompletionWidget, ComingSoon } from '@/components/dashboard/widgets'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { RequestStatusBadge } from '@/components/requests/status-badge'
+import { QuoteStatusBadge } from '@/components/quotes/quote-badge'
+import { formatCedi } from '@/lib/finance'
 import { ArrowRight, Search } from 'lucide-react'
 
 export const metadata = { title: 'Overview' }
@@ -18,6 +21,12 @@ export default async function CustomerOverviewPage() {
   const auth = await getAuthContext()
   const bundle = await getOwnProfileBundle(auth)
   const { items: requests, total } = await listJobRequests(auth, { page: 1, pageSize: 4 })
+  const { items: quotes } = await listQuotes(auth, {
+    page: 1,
+    pageSize: 4,
+    status: 'ALL',
+    q: null,
+  })
 
   return (
     <div>
@@ -87,11 +96,48 @@ export default async function CustomerOverviewPage() {
         </CardContent>
       </Card>
 
+      <Card className="mt-6" data-testid="quotes-overview-card">
+        <CardHeader className="flex flex-row items-center justify-between pb-3">
+          <CardTitle className="text-base">My Quotations</CardTitle>
+          <Button asChild variant="ghost" size="sm">
+            <Link href="/customer/quotes">
+              View all <ArrowRight className="ml-1 h-4 w-4" aria-hidden="true" />
+            </Link>
+          </Button>
+        </CardHeader>
+        <CardContent>
+          {quotes.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              No quotations yet — when a provider prices one of your requests it appears here.
+            </p>
+          ) : (
+            <ul className="divide-y" data-testid="overview-recent-quotes">
+              {quotes.map((quote) => (
+                <li key={quote.id}>
+                  <Link
+                    href={`/customer/quotes/${quote.id}`}
+                    className="flex items-center justify-between gap-3 py-2.5 text-sm transition-colors hover:text-primary"
+                  >
+                    <span className="min-w-0">
+                      <span className="block truncate font-medium">{quote.jobRequest.title ?? 'Quotation'}</span>
+                      <span className="block truncate text-xs text-muted-foreground">
+                        {quote.provider.displayName} · <span className="font-mono tabular-nums">{formatCedi(quote.totalAmount)}</span>
+                      </span>
+                    </span>
+                    <QuoteStatusBadge status={quote.status} />
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </CardContent>
+      </Card>
+
       <div className="mt-6 grid gap-4 sm:grid-cols-2">
-        <ComingSoon title="My Quotes" phase="Phase 6" description="Compare and respond to quotations." />
-        <ComingSoon title="My Projects" phase="Phase 6" description="Track milestones and budgets." />
-        <ComingSoon title="My Orders" phase="Phase 6" description="Buy materials and equipment." />
-        <ComingSoon title="Messages" phase="Phase 6" description="Chat with your providers." />
+        <ComingSoon title="My Projects" phase="Phase 7" description="Track milestones and budgets." />
+        <ComingSoon title="My Orders" phase="Phase 7" description="Buy materials and equipment." />
+        <ComingSoon title="Messages" phase="Phase 7" description="Chat with your providers." />
+        <ComingSoon title="Saved Providers" phase="Phase 7" description="Keep providers you trust close." />
       </div>
     </div>
   )

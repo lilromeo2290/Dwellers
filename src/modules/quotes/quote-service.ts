@@ -1348,3 +1348,62 @@ async function quoteProviderUserId(providerId: string): Promise<string | null> {
   })
   return provider?.userId ?? null
 }
+
+/**
+ * Lists the quotations on ONE job request — the customer-side comparison
+ * foundation (PART 49/50): provider, reference, total, validity, status.
+ * Same authorization as reading the request itself.
+ */
+export async function listRequestQuotes(auth: AuthContext | null, jobRequestId: string) {
+  const access = await resolveJobRequestAccess(auth, jobRequestId)
+  const rows = await db.quote.findMany({
+    where: { jobRequestId: access.request.id },
+    orderBy: { createdAt: 'desc' },
+    select: {
+      id: true,
+      quoteNumber: true,
+      status: true,
+      totalAmount: true,
+      currency: true,
+      validUntil: true,
+      createdAt: true,
+      _count: { select: { items: true } },
+      provider: {
+        select: {
+          id: true,
+          business: { select: { name: true } },
+          user: { select: { name: true } },
+        },
+      },
+    },
+  })
+  return rows.map((row) => ({
+    id: row.id,
+    quoteNumber: row.quoteNumber,
+    status: row.status,
+    totalAmount: row.totalAmount,
+    currency: row.currency,
+    validUntil: row.validUntil,
+    createdAt: row.createdAt,
+    itemCount: row._count.items,
+    provider: {
+      id: row.provider.id,
+      displayName: row.provider.business?.name ?? row.provider.user?.name ?? 'Provider',
+    },
+  }))
+}
+
+/**
+ * The provider side's view of one request's quotations for THIS caller's
+ * profile — used to decide whether CREATE QUOTE may be offered (PART 3) and
+ * to link straight to an existing draft/sent quote.
+ */
+export async function findOwnQuoteForRequest(auth: AuthContext | null, jobRequestId: string) {
+  const access = await resolveJobRequestAccess(auth, jobRequestId)
+  if (access.side !== 'PROVIDER') return null
+  const quote = await db.quote.findFirst({
+    where: { jobRequestId: access.request.id, providerId: access.request.providerId! },
+    select: { id: true, status: true },
+  })
+  return quote
+}

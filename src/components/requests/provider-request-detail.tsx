@@ -37,6 +37,11 @@ export interface ProviderRequestView {
   customerDisplayName: string | null
   servesLocation: boolean | undefined
   canRespond: boolean
+  /** Phase 6 (PART 3): CREATE QUOTE wiring — the page resolves eligibility. */
+  quote: { id: string; status: string } | null
+  canCreateQuote: boolean
+  createQuoteHref: string | null
+  quoteHref: string | null
   attachments: { id: string; originalName: string | null }[]
   events: { id: string; eventType: string; message: string | null; createdAt: string; actorRole: string | null }[]
 }
@@ -202,6 +207,39 @@ export function ProviderRequestDetail({ request }: { request: ProviderRequestVie
               {request.status === 'RESPONDED' && 'The customer has been notified.'}
             </p>
           )}
+
+          {/* Phase 6 (PART 3): price this job — the quote flow starts here. */}
+          {request.canCreateQuote && request.createQuoteHref && (
+            <Card data-testid="create-quote-panel">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Quotation</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm text-muted-foreground">
+                  You marked this job as interesting. Prepare an itemised quotation — labour,
+                  materials, transport — and send it to the customer.
+                </p>
+                <Button asChild className="mt-3" data-testid="create-quote">
+                  <Link href={request.createQuoteHref}>Create quote</Link>
+                </Button>
+              </CardContent>
+            </Card>
+          )}
+          {request.quote && request.quoteHref && (
+            <Card data-testid="existing-quote-panel">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Your quotation</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm text-muted-foreground">
+                  You already created a quotation for this request.
+                </p>
+                <Button asChild variant="outline" className="mt-3" data-testid="view-existing-quote">
+                  <Link href={request.quoteHref}>Open quotation</Link>
+                </Button>
+              </CardContent>
+            </Card>
+          )}
         </div>
 
         <div className="space-y-6 lg:col-span-2">
@@ -214,8 +252,8 @@ export function ProviderRequestDetail({ request }: { request: ProviderRequestVie
             </CardContent>
           </Card>
           <p className="text-xs text-muted-foreground">
-            Requests are private between you and the customer. Quotations arrive in the next phase —
-            for now, agree the details here and with the customer directly.
+            Requests are private between you and the customer. Quotations you create appear on your
+            Quotations board and the customer decides — no phone calls required.
           </p>
         </div>
       </div>

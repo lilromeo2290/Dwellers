@@ -1,0 +1,1159 @@
+     1→     1→/**
+     2→     2→ * Dwellers — Projects module: job requests (Phase 5, REQUEST SERVICE).
+     3→     3→ *
+     4→     4→ * The heart of Dwellers: a customer describes what they need ("my kitchen
+     5→     5→ * sink is leaking — I need a plumber in Nsawam"), attaches photos if helpful,
+     6→     6→ * picks the job location and submits — no phone call required. The targeted
+     7→     7→ * provider responds (interested / needs info / declines), and both sides
+     8→     8→ * follow the SAME real state machine (see job-request-state.ts).
+     9→     9→ *
+    10→    10→ * Authorization model:
+    11→    11→ *  - CREATE/EDIT/SUBMIT/CANCEL: the owning customer only ('projects:create'
+    12→    12→ *    is customer-only in the RBAC matrix). Providers cannot file requests.
+    13→    13→ *  - PROVIDER RESPONSE: the targeted provider — the profile's own user, or
+    14→    14→ *    (for business-affiliated profiles) an ACTIVE OWNER/MANAGER business
+    15→    15→ *    member. Plain MEMBERs may read but not act (PART 27).
+    16→    16→ *  - READ: customers see their OWN requests; the targeted provider side sees
+    17→    17→ *    requests addressed to them; staff sees all. Cross-user reads are
+    18→    18→ *    structurally impossible (404 — existence is never disclosed).
+    19→    19→ *
+    20→    20→ * State changes are validated by the central machine, executed inside
+    21→    21→ * transactions together with their timeline event, and never trust the
+    22→    22→ * client to name a status (PART 24). The timeline (PART 45) is derived from
+    23→    23→ * real JobRequestEvent rows written in the same transaction.
+    24→    24→ */
+    25→    25→import { z } from 'zod'
+    26→    26→import type { Prisma } from '@prisma/client'
+    27→    27→import { db } from '@/lib/db'
+    28→    28→import {
+    29→    29→  BadRequestError,
+    30→    30→  ForbiddenError,
+    31→    31→  NotFoundError,
+    32→    32→  ValidationError,
+    33→    33→} from '@/lib/errors'
+    34→    34→import { optionalPesewasSchema, optionalText, safeText } from '@/lib/api/schemas'
+    35→    35→import { paginationQuerySchema, skipTake } from '@/lib/api/pagination'
+    36→    36→import type { AuthContext } from '@/lib/auth/session'
+    37→    37→import { requireAuth } from '@/lib/auth/guards'
+    38→    38→import { isStaff, ROLE_DEFINITIONS } from '@/lib/auth/roles'
+    39→    39→import { generateReference } from '@/lib/utils'
+    40→    40→import { AUDIT_ACTIONS, recordAudit } from '@/lib/audit'
+    41→    41→import { recordDiscoveryEvent } from '@/modules/discovery/provider-discovery'
+    42→    42→import {
+    43→    43→  assertTransition,
+    44→    44→  ATTACHMENT_EDITABLE_STATUSES,
+    45→    45→  EDITABLE_STATUSES,
+    46→    46→  actorKindForRole,
+    47→    47→  isTerminal,
+    48→    48→  RESPONSE_TRANSITIONS,
+    49→    49→  statusesForGroup,
+    50→    50→  URGENCY_LEVELS,
+    51→    51→  type JobRequestAction,
+    52→    52→  type ProviderStatusGroup,
+    53→    53→} from '@/modules/projects/job-request-state'
+    54→    54→import { NOTIFICATION_TYPES } from '@/modules/communication/notification-service'
+    55→    55→
+    56→    56→// -----------------------------------------------------------------------------
+    57→    57→// Configuration
+    58→    58→// -----------------------------------------------------------------------------
+    59→    59→
+    60→    60→/** Maximum photos per request (PART 13) — configurable, never unlimited. */
+    61→    61→export const MAX_JOB_REQUEST_ATTACHMENTS = 10
+    62→    62→
+    63→    63→export const TIME_SLOTS = ['MORNING', 'AFTERNOON', 'EVENING', 'FLEXIBLE'] as const
+    64→    64→
+    65→    65→// -----------------------------------------------------------------------------
+    66→    66→// Schemas
+    67→    67→// -----------------------------------------------------------------------------
+    68→    68→
+    69→    69→const isoDate = z
+    70→    70→  .string()
+    71→    71→  .refine((value) => !Number.isNaN(Date.parse(value)), 'Invalid date')
+    72→    72→  .transform((value) => new Date(value))
+    73→    73→  .nullable()
+    74→    74→  .optional()
+    75→    75→
+    76→    76→export const createJobRequestSchema = z
+    77→    77→  .object({
+    78→    78→    title: optionalText(120, 'Title'),
+    79→    79→    description: safeText(5000, 'Description').optional(),
+    80→    80→    categoryId: z.string().min(1).nullable().optional(),
+    81→    81→    serviceId: z.string().min(1).nullable().optional(),
+    82→    82→    providerId: z.string().min(1).nullable().optional(),
+    83→    83→    locationId: z.string().min(1).nullable().optional(),
+    84→    84→    communityId: z.string().min(1).nullable().optional(),
+    85→    85→    areaText: optionalText(200, 'Area'),
+    86→    86→    latitude: z.number().min(-90).max(90).nullable().optional(),
+    87→    87→    longitude: z.number().min(-180).max(180).nullable().optional(),
+    88→    88→    budgetMinAmount: optionalPesewasSchema,
+    89→    89→    budgetMaxAmount: optionalPesewasSchema,
+    90→    90→    preferredDate: isoDate,
+    91→    91→    preferredTimeSlot: z.enum(TIME_SLOTS).nullable().optional(),
+    92→    92→    urgency: z.enum(URGENCY_LEVELS).nullable().optional(),
+    93→    93→    submitNow: z.boolean().optional(),
+    94→    94→    /** Browser-generated idempotency key — a retry never duplicates a request. */
+    95→    95→    clientToken: safeText(64, 'Client token').optional(),
+    96→    96→    attachmentKeys: z
+    97→    97→      .array(
+    98→    98→        z.object({
+    99→    99→          storageKey: safeText(300, 'Attachment key'),
+   100→   100→          originalName: safeText(200, 'Attachment name').optional(),
+   101→   101→          mimeType: safeText(100).optional(),
+   102→   102→          sizeBytes: z.number().int().min(0).optional(),
+   103→   103→          kind: z.enum(['PHOTO', 'VIDEO', 'DOCUMENT']).optional(),
+   104→   104→        }),
+   105→   105→      )
+   106→   106→      .max(MAX_JOB_REQUEST_ATTACHMENTS)
+   107→   107→      .optional(),
+   108→   108→  })
+   109→   109→  .refine((value) => (value.description?.trim().length ?? 0) > 0 || value.submitNow !== true, {
+   110→   110→    message: 'Describe the work you need before submitting',
+   111→   111→    path: ['description'],
+   112→   112→  })
+   113→   113→  .refine((value) => value.budgetMinAmount == null || value.budgetMaxAmount == null ||
+   114→   114→    value.budgetMaxAmount >= value.budgetMinAmount, {
+   115→   115→    message: 'Maximum budget cannot be lower than the minimum',
+   116→   116→    path: ['budgetMaxAmount'],
+   117→   117→  })
+   118→   118→
+   119→   119→export const updateJobRequestSchema = z.object({
+   120→   120→  title: optionalText(120, 'Title'),
+   121→   121→  description: optionalText(5000, 'Description'),
+   122→   122→  serviceId: z.string().min(1).nullable().optional(),
+   123→   123→  categoryId: z.string().min(1).nullable().optional(),
+   124→   124→  locationId: z.string().min(1).nullable().optional(),
+   125→   125→  communityId: z.string().min(1).nullable().optional(),
+   126→   126→  areaText: optionalText(200, 'Area'),
+   127→   127→  latitude: z.number().min(-90).max(90).nullable().optional(),
+   128→   128→  longitude: z.number().min(-180).max(180).nullable().optional(),
+   129→   129→  budgetMinAmount: optionalPesewasSchema,
+   130→   130→  budgetMaxAmount: optionalPesewasSchema,
+   131→   131→  preferredDate: isoDate,
+   132→   132→  preferredTimeSlot: z.enum(TIME_SLOTS).nullable().optional(),
+   133→   133→  urgency: z.enum(URGENCY_LEVELS).nullable().optional(),
+   134→   134→  action: z.enum(['submit', 'cancel']).optional(),
+   135→   135→  cancellationReason: optionalText(300, 'Cancellation reason'),
+   136→   136→})
+   137→   137→
+   138→   138→export const respondToJobRequestSchema = z.object({
+   139→   139→  action: z.enum(['respond_interested', 'respond_declined', 'respond_info']),
+   140→   140→  message: optionalText(1000, 'Response message'),
+   141→   141→})
+   142→   142→
+   143→   143→export const JOB_REQUEST_STATUSES = [
+   144→   144→  'DRAFT',
+   145→   145→  'SUBMITTED',
+   146→   146→  'MATCHING',
+   147→   147→  'RESPONDED',
+   148→   148→  'ACCEPTED',
+   149→   149→  'IN_PROGRESS',
+   150→   150→  'COMPLETED',
+   151→   151→  'DECLINED',
+   152→   152→  'CANCELLED',
+   153→   153→] as const
+   154→   154→
+   155→   155→export const jobRequestListQuerySchema = paginationQuerySchema.extend({
+   156→   156→  status: z.enum(JOB_REQUEST_STATUSES).optional(),
+   157→   157→  /** Provider dashboard sections (PART 28) — expanded server-side. */
+   158→   158→  statusGroup: z.enum(['NEW', 'ACTIVE', 'COMPLETED', 'DECLINED', 'CANCELLED']).optional(),
+   159→   159→  categoryId: z.string().optional(),
+   160→   160→  locationId: z.string().optional(),
+   161→   161→})
+   162→   162→
+   163→   163→export type CreateJobRequestInput = z.infer<typeof createJobRequestSchema>
+   164→   164→export type UpdateJobRequestInput = z.infer<typeof updateJobRequestSchema>
+   165→   165→export type RespondToJobRequestInput = z.infer<typeof respondToJobRequestSchema>
+   166→   166→export type JobRequestListQuery = z.infer<typeof jobRequestListQuerySchema>
+   167→   167→
+   168→   168→// -----------------------------------------------------------------------------
+   169→   169→// Privileges
+   170→   170→// -----------------------------------------------------------------------------
+   171→   171→
+   172→   172→export interface RequestAccess {
+   173→   173→  request: {
+   174→   174→    id: string
+   175→   175→    reference: string
+   176→   176→    customerId: string
+   177→   177→    providerId: string | null
+   178→   178→    serviceId: string | null
+   179→   179→    locationId: string | null
+   180→   180→    communityId: string | null
+   181→   181→    status: string
+   182→   182→    viewedAt: Date | null
+   183→   183→  }
+   184→   184→  /** CUSTOMER = owner; PROVIDER = targeted side; STAFF. */
+   185→   185→  side: 'CUSTOMER' | 'PROVIDER' | 'STAFF'
+   186→   186→  /** Provider side may act (respond) — owner user, OWNER or MANAGER member. */
+   187→   187→  canManageProviderSide: boolean
+   188→   188→}
+   189→   189→
+   190→   190→/**
+   191→   191→ * Loads a request and resolves the caller's relationship to it. Foreign
+   192→   192→ * callers receive the same opaque 404 as anonymous probes — the existence of
+   193→   193→ * a request is never disclosed (PART 49/52).
+   194→   194→ */
+   195→   195→async function resolveAccess(auth: AuthContext | null, id: string): Promise<RequestAccess> {
+   196→   196→  const context = requireAuth(auth)
+   197→   197→  const request = await db.jobRequest.findUnique({
+   198→   198→    where: { id },
+   199→   199→    select: {
+   200→   200→      id: true,
+   201→   201→      reference: true,
+   202→   202→      customerId: true,
+   203→   203→      providerId: true,
+   204→   204→      serviceId: true,
+   205→   205→      locationId: true,
+   206→   206→      communityId: true,
+   207→   207→      status: true,
+   208→   208→      viewedAt: true,
+   209→   209→    },
+   210→   210→  })
+   211→   211→  if (!request) throw new NotFoundError('Job request')
+   212→   212→
+   213→   213→  if (request.customerId === context.userId) {
+   214→   214→    return { request, side: 'CUSTOMER', canManageProviderSide: false }
+   215→   215→  }
+   216→   216→
+   217→   217→  if (isStaff(context.role)) {
+   218→   218→    return { request, side: 'STAFF', canManageProviderSide: false }
+   219→   219→  }
+   220→   220→
+   221→   221→  if (request.providerId && ROLE_DEFINITIONS[context.role].isProvider) {
+   222→   222→    const provider = await db.providerProfile.findUnique({
+   223→   223→      where: { id: request.providerId },
+   224→   224→      select: { userId: true, businessId: true },
+   225→   225→    })
+   226→   226→    if (provider) {
+   227→   227→      if (provider.userId === context.userId) {
+   228→   228→        return { request, side: 'PROVIDER', canManageProviderSide: true }
+   229→   229→      }
+   230→   230→      if (provider.businessId) {
+   231→   231→        // Business-affiliated profile: OWNER/MANAGER manage; MEMBER read-only
+   232→   232→        // (PART 27 — never blanket owner-level powers).
+   233→   233→        const membership = await db.businessMember.findUnique({
+   234→   234→          where: { businessId_userId: { businessId: provider.businessId, userId: context.userId } },
+   235→   235→          select: { memberRole: true, status: true },
+   236→   236→        })
+   237→   237→        if (membership && membership.status === 'ACTIVE') {
+   238→   238→          return {
+   239→   239→            request,
+   240→   240→            side: 'PROVIDER',
+   241→   241→            canManageProviderSide: membership.memberRole === 'OWNER' || membership.memberRole === 'MANAGER',
+   242→   242→          }
+   243→   243→        }
+   244→   244→      }
+   245→   245→    }
+   246→   246→  }
+   247→   247→
+   248→   248→  throw new NotFoundError('Job request')
+   249→   249→}
+   250→   250→
+   251→   251→// -----------------------------------------------------------------------------
+   252→   252→// Validation helpers
+   253→   253→// -----------------------------------------------------------------------------
+   254→   254→
+   255→   255→/** Strips undefined entries — explicit nulls are kept (they clear a field). */
+   256→   256→function pruneUndefined<T extends Record<string, unknown>>(input: T): T {
+   257→   257→  const result: Record<string, unknown> = {}
+   258→   258→  for (const [key, value] of Object.entries(input)) {
+   259→   259→    if (value !== undefined) result[key] = value
+   260→   260→  }
+   261→   261→  return result as T
+   262→   262→}
+   263→   263→
+   264→   264→/**
+   265→   265→ * Ghana location hierarchy is validated SERVER-SIDE (PART 40) — the
+   266→   266→ * cascading frontend selectors are never trusted: a community must belong to
+   267→   267→ * the chosen town, or it is rejected.
+   268→   268→ */
+   269→   269→async function validateLocationHierarchy(input: { locationId?: string | null; communityId?: string | null }) {
+   270→   270→  if (input.locationId) {
+   271→   271→    const town = await db.town.findFirst({ where: { id: input.locationId, isActive: true } })
+   272→   272→    if (!town) throw new ValidationError({ locationId: ['Unknown location'] })
+   273→   273→  }
+   274→   274→  if (input.communityId) {
+   275→   275→    const community = await db.communityArea.findFirst({
+   276→   276→      where: { id: input.communityId, isActive: true },
+   277→   277→      select: { townId: true },
+   278→   278→    })
+   279→   279→    if (!community) throw new ValidationError({ communityId: ['Unknown community'] })
+   280→   280→    if (input.locationId && community.townId !== input.locationId) {
+   281→   281→      throw new ValidationError({
+   282→   282→        communityId: ['The selected area is not in the selected town'],
+   283→   283→      })
+   284→   284→    }
+   285→   285→    if (!input.locationId) {
+   286→   286→      throw new ValidationError({ locationId: ['Select the town for this community'] })
+   287→   287→    }
+   288→   288→  }
+   289→   289→}
+   290→   290→
+   291→   291→/**
+   292→   292→ * A request may only target a service the provider GENUINELY offers (PART 4):
+   293→   293→ * active, available, and owned by that provider. Server-side — never trusted
+   294→   294→ * from the client.
+   295→   295→ */
+   296→   296→async function assertProviderOffersService(providerId: string, serviceId: string) {
+   297→   297→  const service = await db.service.findFirst({
+   298→   298→    where: { id: serviceId, providerId, deletedAt: null, status: 'ACTIVE', isAvailable: true },
+   299→   299→    select: { id: true },
+   300→   300→  })
+   301→   301→  if (!service) {
+   302→   302→    throw new ValidationError({
+   303→   303→      serviceId: ['This service is not currently offered by this provider.'],
+   304→   304→    })
+   305→   305→  }
+   306→   306→}
+   307→   307→
+   308→   308→/** Does the provider list this town among its service areas? (PART 41) */
+   309→   309→async function providerServesTown(
+   310→   310→  providerId: string | null | undefined,
+   311→   311→  townId: string | null | undefined,
+   312→   312→): Promise<boolean> {
+   313→   313→  if (!providerId || !townId) return false
+   314→   314→  const area = await db.providerServiceArea.findUnique({
+   315→   315→    where: { providerId_locationId: { providerId, locationId: townId } },
+   316→   316→    select: { id: true },
+   317→   317→  })
+   318→   318→  return area != null
+   319→   319→}
+   320→   320→
+   321→   321→/** Every referenced record must exist and be usable (PART 20). */
+   322→   322→async function assertJobRequestRefs(input: {
+   323→   323→  categoryId?: string | null
+   324→   324→  serviceId?: string | null
+   325→   325→  providerId?: string | null
+   326→   326→  locationId?: string | null
+   327→   327→  communityId?: string | null
+   328→   328→}) {
+   329→   329→  if (input.categoryId) {
+   330→   330→    const category = await db.category.findFirst({ where: { id: input.categoryId, isActive: true } })
+   331→   331→    if (!category) throw new ValidationError({ categoryId: ['Unknown category'] })
+   332→   332→  }
+   333→   333→  if (input.serviceId) {
+   334→   334→    const service = await db.service.findFirst({ where: { id: input.serviceId, deletedAt: null } })
+   335→   335→    if (!service) throw new ValidationError({ serviceId: ['Unknown service'] })
+   336→   336→  }
+   337→   337→  if (input.providerId) {
+   338→   338→    const provider = await db.providerProfile.findFirst({
+   339→   339→      where: { id: input.providerId, deletedAt: null, user: { status: 'ACTIVE' } },
+   340→   340→      select: { id: true },
+   341→   341→    })
+   342→   342→    if (!provider) throw new ValidationError({ providerId: ['This provider is not currently available.'] })
+   343→   343→  }
+   344→   344→  await validateLocationHierarchy(input)
+   345→   345→}
+   346→   346→
+   347→   347→/** Submit-time completeness rules (PARTS 4/5/6/7/20) — enforced again server-side. */
+   348→   348→function assertSubmittable(data: {
+   349→   349→  title: string | null
+   350→   350→  description: string | null
+   351→   351→  serviceId: string | null
+   352→   352→  providerId: string | null
+   353→   353→  locationId: string | null
+   354→   354→  preferredDate: Date | null
+   355→   355→}) {
+   356→   356→  const fieldErrors: Record<string, string[]> = {}
+   357→   357→  const title = data.title?.trim() ?? ''
+   358→   358→  if (title.length < 10 || title.length > 120) {
+   359→   359→    fieldErrors.title = ['Give the job a short, clear title (10–120 characters).']
+   360→   360→  }
+   361→   361→  if ((data.description?.trim().length ?? 0) < 10) {
+   362→   362→    fieldErrors.description = ['Please describe the job (at least 10 characters).']
+   363→   363→  }
+   364→   364→  if (!data.locationId) {
+   365→   365→    fieldErrors.locationId = ['Please select where the job is.']
+   366→   366→  }
+   367→   367→  if (data.providerId && !data.serviceId) {
+   368→   368→    fieldErrors.serviceId = ['Please select the service you need.']
+   369→   369→  }
+   370→   370→  if (data.preferredDate) {
+   371→   371→    const startOfToday = new Date()
+   372→   372→    startOfToday.setHours(0, 0, 0, 0)
+   373→   373→    if (data.preferredDate < startOfToday) {
+   374→   374→      fieldErrors.preferredDate = ['Preferred date cannot be in the past.']
+   375→   375→    }
+   376→   376→  }
+   377→   377→  if (Object.keys(fieldErrors).length > 0) throw new ValidationError(fieldErrors)
+   378→   378→}
+   379→   379→
+   380→   380→// -----------------------------------------------------------------------------
+   381→   381→// Select shapes
+   382→   382→// -----------------------------------------------------------------------------
+   383→   383→
+   384→   384→/** Provider display name: business name when affiliated, else the person. */
+   385→   385→const providerDisplaySelect = {
+   386→   386→  select: {
+   387→   387→    id: true,
+   388→   388→    profession: true,
+   389→   389→    business: { select: { name: true } },
+   390→   390→    user: { select: { name: true } },
+   391→   391→  },
+   392→   392→} as const
+   393→   393→
+   394→   394→const requestInclude = {
+   395→   395→  category: { select: { id: true, name: true, slug: true } },
+   396→   396→  service: { select: { id: true, name: true } },
+   397→   397→  location: {
+   398→   398→    select: { id: true, name: true, region: { select: { name: true } }, district: { select: { name: true } } },
+   399→   399→  },
+   400→   400→  community: { select: { id: true, name: true } },
+   401→   401→  provider: providerDisplaySelect,
+   402→   402→  attachments: {
+   403→   403→    select: { id: true, storageKey: true, kind: true, mimeType: true, originalName: true, sizeBytes: true },
+   404→   404→  },
+   405→   405→} as const
+   406→   406→
+   407→   407→const listSelect = {
+   408→   408→  select: {
+   409→   409→    id: true,
+   410→   410→    reference: true,
+   411→   411→    title: true,
+   412→   412→    description: true,
+   413→   413→    status: true,
+   414→   414→    customerId: true,
+   415→   415→    providerId: true,
+   416→   416→    urgency: true,
+   417→   417→    viewedAt: true,
+   418→   418→    respondedAt: true,
+   419→   419→    responseKind: true,
+   420→   420→    areaText: true,
+   421→   421→    cancellationReason: true,
+   422→   422→    cancelledAt: true,
+   423→   423→    budgetMinAmount: true,
+   424→   424→    budgetMaxAmount: true,
+   425→   425→    currency: true,
+   426→   426→    preferredDate: true,
+   427→   427→    preferredTimeSlot: true,
+   428→   428→    ...requestInclude,
+   429→   429→    _count: { select: { attachments: true } },
+   430→   430→    createdAt: true,
+   431→   431→    submittedAt: true,
+   432→   432→    updatedAt: true,
+   433→   433→  },
+   434→   434→} as const
+   435→   435→
+   436→   436→/** _count alias projected onto the list shape (attachments). */
+   437→   437→function withListCount<T extends { _count: { attachments: number } }>(row: T) {
+   438→   438→  const { _count, ...rest } = row
+   439→   439→  return { ...rest, attachmentCount: _count.attachments }
+   440→   440→}
+   441→   441→
+   442→   442→// -----------------------------------------------------------------------------
+   443→   443→// Create
+   444→   444→// -----------------------------------------------------------------------------
+   445→   445→
+   446→   446→/**
+   447→   447→ * Creates a job request for the CALLING customer (draft or direct submit).
+   448→   448→ * Idempotent on clientToken (PART 43): a network retry or double click
+   449→   449→ * returns the SAME request instead of creating a duplicate.
+   450→   450→ */
+   451→   451→export async function createJobRequest(auth: AuthContext | null, input: CreateJobRequestInput) {
+   452→   452→  const context = requireAuth(auth)
+   453→   453→
+   454→   454→  // Idempotency first — a retry with the same token resolves to the
+   455→   455→  // original request no matter where the first attempt failed.
+   456→   456→  if (input.clientToken) {
+   457→   457→    const existing = await db.jobRequest.findFirst({
+   458→   458→      where: { customerId: context.userId, clientToken: input.clientToken },
+   459→   459→      select: { id: true },
+   460→   460→    })
+   461→   461→    if (existing) return existing.id
+   462→   462→  }
+   463→   463→
+   464→   464→  await assertJobRequestRefs(input)
+   465→   465→  if (input.serviceId && input.providerId) {
+   466→   466→    await assertProviderOffersService(input.providerId, input.serviceId)
+   467→   467→  }
+   468→   468→
+   469→   469→  const submit = input.submitNow === true
+   470→   470→  const data = {
+   471→   471→    title: input.title ?? null,
+   472→   472→    description: input.description ?? '',
+   473→   473→    categoryId: input.categoryId ?? null,
+   474→   474→    serviceId: input.serviceId ?? null,
+   475→   475→    providerId: input.providerId ?? null,
+   476→   476→    locationId: input.locationId ?? null,
+   477→   477→    communityId: input.communityId ?? null,
+   478→   478→    areaText: input.areaText ?? null,
+   479→   479→    latitude: input.latitude ?? null,
+   480→   480→    longitude: input.longitude ?? null,
+   481→   481→    budgetMinAmount: input.budgetMinAmount ?? null,
+   482→   482→    budgetMaxAmount: input.budgetMaxAmount ?? null,
+   483→   483→    preferredDate: input.preferredDate ?? null,
+   484→   484→    preferredTimeSlot: input.preferredTimeSlot ?? null,
+   485→   485→    urgency: input.urgency ?? null,
+   486→   486→    clientToken: input.clientToken ?? null,
+   487→   487→  }
+   488→   488→  if (submit) assertSubmittable({ ...data, description: data.description ?? null })
+   489→   489→
+   490→   490→  try {
+   491→   491→    const id = await db.$transaction(async (tx) => {
+   492→   492→      // Live provider-service re-check inside the transaction (PART 20).
+   493→   493→      if (input.providerId) {
+   494→   494→        const provider = await tx.providerProfile.findFirst({
+   495→   495→          where: { id: input.providerId, deletedAt: null, user: { status: 'ACTIVE' } },
+   496→   496→          select: { id: true },
+   497→   497→        })
+   498→   498→        if (!provider) {
+   499→   499→          throw new ValidationError({ providerId: ['This provider is not currently available.'] })
+   500→   500→        }
+   501→   501→      }
+   502→   502→      if (input.serviceId && input.providerId) {
+   503→   503→        await assertProviderOffersService(input.providerId, input.serviceId)
+   504→   504→      }
+   505→   505→
+   506→   506→      const now = new Date()
+   507→   507→      const request = await tx.jobRequest.create({
+   508→   508→        data: {
+   509→   509→          reference: generateReference('JR'),
+   510→   510→          customerId: context.userId,
+   511→   511→          status: submit ? 'SUBMITTED' : 'DRAFT',
+   512→   512→          submittedAt: submit ? now : null,
+   513→   513→          attachments: {
+   514→   514→            create: (input.attachmentKeys ?? []).map((attachment) => ({
+   515→   515→              storageKey: attachment.storageKey,
+   516→   516→              originalName: attachment.originalName ?? null,
+   517→   517→              mimeType: attachment.mimeType ?? null,
+   518→   518→              sizeBytes: attachment.sizeBytes ?? null,
+   519→   519→              kind: attachment.kind ?? 'PHOTO',
+   520→   520→              uploadedById: context.userId,
+   521→   521→            })),
+   522→   522→          },
+   523→   523→          events: {
+   524→   524→            create: submit
+   525→   525→              ? [
+   526→   526→                  { eventType: 'CREATED', actorId: context.userId, actorRole: context.role },
+   527→   527→                  { eventType: 'SUBMITTED', actorId: context.userId, actorRole: context.role },
+   528→   528→                ]
+   529→   529→              : [{ eventType: 'CREATED', actorId: context.userId, actorRole: context.role }],
+   530→   530→          },
+   531→   531→          ...data,
+   532→   532→        },
+   533→   533→        select: { id: true, providerId: true, serviceId: true, locationId: true },
+   534→   534→      })
+   535→   535→
+   536→   536→      if (submit) {
+   537→   537→        await notifyProviderOfNewRequest(tx, request)
+   538→   538→      }
+   539→   539→      return request.id
+   540→   540→    })
+   541→   541→
+   542→   542→    await recordAudit({
+   543→   543→      actorId: context.userId,
+   544→   544→      actorRole: context.role,
+   545→   545→      action: submit ? AUDIT_ACTIONS.JOB_REQUEST_SUBMITTED : AUDIT_ACTIONS.JOB_REQUEST_CREATED,
+   546→   546→      entityType: 'JobRequest',
+   547→   547→      entityId: id,
+   548→   548→      metadata: { submitNow: submit },
+   549→   549→    })
+   550→   550→    if (submit) recordDiscoveryEvent({ type: 'request_submitted' })
+   551→   551→    return id
+   552→   552→  } catch (error) {
+   553→   553→    // Concurrent duplicate with the same clientToken → return the winner.
+   554→   554→    if (
+   555→   555→      input.clientToken &&
+   556→   556→      (error as { code?: string }).code === 'P2002' &&
+   557→   557→      (await duplicateTokenExists(context.userId, input.clientToken))
+   558→   558→    ) {
+   559→   559→      const existing = await db.jobRequest.findFirst({
+   560→   560→        where: { customerId: context.userId, clientToken: input.clientToken },
+   561→   561→        select: { id: true },
+   562→   562→      })
+   563→   563→      if (existing) return existing.id
+   564→   564→    }
+   565→   565→    throw error
+   566→   566→  }
+   567→   567→}
+   568→   568→
+   569→   569→async function duplicateTokenExists(customerId: string, token: string): Promise<boolean> {
+   570→   570→  const existing = await db.jobRequest.findFirst({
+   571→   571→    where: { customerId, clientToken: token },
+   572→   572→    select: { id: true },
+   573→   573→  })
+   574→   574→  return existing != null
+   575→   575→}
+   576→   576→
+   577→   577→/** In-app notification to the targeted provider (PART 34), inside the caller's transaction. */
+   578→   578→async function notifyProviderOfNewRequest(
+   579→   579→  tx: Prisma.TransactionClient,
+   580→   580→  request: { id: string; providerId: string | null; serviceId: string | null; locationId: string | null },
+   581→   581→) {
+   582→   582→  if (!request.providerId) return
+   583→   583→  const provider = await tx.providerProfile.findUnique({
+   584→   584→    where: { id: request.providerId },
+   585→   585→    select: { userId: true, business: { select: { name: true } }, user: { select: { name: true } } },
+   586→   586→  })
+   587→   587→  if (!provider) return
+   588→   588→  const [service, town] = await Promise.all([
+   589→   589→    request.serviceId
+   590→   590→      ? tx.service.findUnique({ where: { id: request.serviceId }, select: { name: true } })
+   591→   591→      : Promise.resolve(null),
+   592→   592→    request.locationId
+   593→   593→      ? tx.town.findUnique({ where: { id: request.locationId }, select: { name: true } })
+   594→   594→      : Promise.resolve(null),
+   595→   595→  ])
+   596→   596→  await tx.notification.create({
+   597→   597→    data: {
+   598→   598→      recipientId: provider.userId,
+   599→   599→      type: NOTIFICATION_TYPES.JOB_REQUEST_NEW,
+   600→   600→      channel: 'IN_APP',
+   601→   601→      title: `New service request${town ? ` in ${town.name}` : ''}.`,
+   602→   602→      body: `${service?.name ?? 'A service'} request — open Job Requests to respond.`,
+   603→   603→      entityType: 'JobRequest',
+   604→   604→      entityId: request.id,
+   605→   605→    },
+   606→   606→    select: { id: true },
+   607→   607→  })
+   608→   608→}
+   609→   609→
+   610→   610→// -----------------------------------------------------------------------------
+   611→   611→// List / read
+   612→   612→// -----------------------------------------------------------------------------
+   613→   613→
+   614→   614→/**
+   615→   615→ * Role-scoped listing: customers → own requests; provider roles → requests
+   616→   616→ * targeted at them (including business-affiliated profiles they belong to);
+   617→   617→ * staff → everything. There is no way to see another customer's requests.
+   618→   618→ */
+   619→   619→export async function listJobRequests(auth: AuthContext | null, query: JobRequestListQuery) {
+   620→   620→  const context = requireAuth(auth)
+   621→   621→
+   622→   622→  const statusFilter: Prisma.JobRequestWhereInput = query.status
+   623→   623→    ? { status: query.status }
+   624→   624→    : query.statusGroup
+   625→   625→      ? { status: { in: statusesForGroup(query.statusGroup) } }
+   626→   626→      : {}
+   627→   627→
+   628→   628→  let where: Prisma.JobRequestWhereInput
+   629→   629→  if (isStaff(context.role)) {
+   630→   630→    where = { ...statusFilter }
+   631→   631→  } else if (ROLE_DEFINITIONS[context.role].isProvider) {
+   632→   632→    const provider = await db.providerProfile.findUnique({
+   633→   633→      where: { userId: context.userId },
+   634→   634→      select: { id: true, businessId: true },
+   635→   635→    })
+   636→   636→    if (!provider) return { items: [], total: 0 }
+   637→   637→    // Business members see requests addressed to their business's profiles.
+   638→   638→    const businessProviderIds = provider.businessId
+   639→   639→      ? (
+   640→   640→          await db.providerProfile.findMany({
+   641→   641→            where: { businessId: provider.businessId, deletedAt: null },
+   642→   642→            select: { id: true },
+   643→   643→          })
+   644→   644→        ).map((p) => p.id)
+   645→   645→      : []
+   646→   646→    const providerIds = [...new Set([provider.id, ...businessProviderIds])]
+   647→   647→    where = { providerId: { in: providerIds }, ...statusFilter }
+   648→   648→  } else {
+   649→   649→    where = { customerId: context.userId, ...statusFilter }
+   650→   650→  }
+   651→   651→
+   652→   652→  const filtered: Prisma.JobRequestWhereInput = {
+   653→   653→    ...where,
+   654→   654→    ...(query.categoryId ? { categoryId: query.categoryId } : {}),
+   655→   655→    ...(query.locationId ? { locationId: query.locationId } : {}),
+   656→   656→  }
+   657→   657→
+   658→   658→  const { skip, take } = skipTake(query)
+   659→   659→  const [total, rows] = await Promise.all([
+   660→   660→    db.jobRequest.count({ where: filtered }),
+   661→   661→    db.jobRequest.findMany({
+   662→   662→      where: filtered,
+   663→   663→      orderBy: { createdAt: 'desc' },
+   664→   664→      skip,
+   665→   665→      take,
+   666→   666→      ...listSelect,
+   667→   667→    }),
+   668→   668→  ])
+   669→   669→
+   670→   670→  return { items: rows.map(withListCount), total }
+   671→   671→}
+   672→   672→
+   673→   673→/**
+   674→   674→ * Owner, targeted provider side or staff may read a single request. Provider
+   675→   675→ * side reads mark VIEWED exactly once (real timeline event, PART 44/45).
+   676→   676→ */
+   677→   677→export async function getJobRequest(auth: AuthContext | null, id: string) {
+   678→   678→  const context = requireAuth(auth)
+   679→   679→  const access = await resolveAccess(auth, id)
+   680→   680→  const request = await db.jobRequest.findUnique({ where: { id }, ...listSelect })
+   681→   681→  if (!request) throw new NotFoundError('Job request')
+   682→   682→
+   683→   683→  // Privacy: the provider side sees a display name only — never the
+   684→   684→  // customer's email, phone or account details (PART 18/28/49).
+   685→   685→  const providerPerspective = access.side !== 'CUSTOMER'
+   686→   686→  const customer = providerPerspective
+   687→   687→    ? await db.user.findUnique({
+   688→   688→        where: { id: access.request.customerId },
+   689→   689→        select: { name: true },
+   690→   690→      })
+   691→   691→    : null
+   692→   692→
+   693→   693→  // First provider-side open → VIEWED (idempotent).
+   694→   694→  let viewedAt = request.viewedAt
+   695→   695→  if (providerPerspective && !viewedAt && !isTerminal(request.status)) {
+   696→   696→    const now = new Date()
+   697→   697→    await db.$transaction([
+   698→   698→      db.jobRequest.update({ where: { id }, data: { viewedAt: now } }),
+   699→   699→      db.jobRequestEvent.create({
+   700→   700→        data: { jobRequestId: id, eventType: 'VIEWED', actorId: context.userId, actorRole: context.role },
+   701→   701→      }),
+   702→   702→    ])
+   703→   703→    viewedAt = now
+   704→   704→    recordDiscoveryEvent({ type: 'provider_request_viewed' })
+   705→   705→    recordAudit({
+   706→   706→      actorId: context.userId,
+   707→   707→      actorRole: context.role,
+   708→   708→      action: AUDIT_ACTIONS.JOB_REQUEST_VIEWED,
+   709→   709→      entityType: 'JobRequest',
+   710→   710→      entityId: id,
+   711→   711→      metadata: { reference: request.reference },
+   712→   712→    })
+   713→   713→  }
+   714→   714→
+   715→   715→  // Honest coverage notice (PART 41): flag — never a claim — when the job
+   716→   716→  // location is outside the provider's listed service areas.
+   717→   717→  const servesLocation =
+   718→   718→    access.side === 'CUSTOMER' || access.side === 'STAFF'
+   719→   719→      ? undefined
+   720→   720→      : await providerServesTown(access.request.providerId, request.location?.id)
+   721→   721→
+   722→   722→  const events = await listRequestEvents(id)
+   723→   723→
+   724→   724→  const result = {
+   725→   725→    ...withListCount(request),
+   726→   726→    viewedAt,
+   727→   727→    events,
+   728→   728→    access: {
+   729→   729→      side: access.side,
+   730→   730→      canRespond: access.side === 'PROVIDER' && access.canManageProviderSide,
+   731→   731→      canManage: access.side === 'CUSTOMER' || access.canManageProviderSide,
+   732→   732→    },
+   733→   733→    ...(providerPerspective && customer
+   734→   734→      ? {
+   735→   735→          customer: {
+   736→   736→            // First name + last initial only — display-name privacy.
+   737→   737→            displayName: displayNameInitial(customer.name),
+   738→   738→          },
+   739→   739→        }
+   740→   740→      : {}),
+   741→   741→    ...(servesLocation !== undefined ? { servesLocation } : {}),
+   742→   742→  }
+   743→   743→  return result
+   744→   744→}
+   745→   745→
+   746→   746→/** "Raymond A." — enough to feel human, not enough to expose identity. */
+   747→   747→function displayNameInitial(name: string | null): string {
+   748→   748→  const parts = (name ?? '')
+   749→   749→    .trim()
+   750→   750→    .split(/\s+/)
+   751→   751→    .filter(Boolean)
+   752→   752→    // Skip parenthesised suffixes like "(Demo)" — never part of a real name.
+   753→   753→    .filter((part) => !/^[(@[]/.test(part))
+   754→   754→  if (parts.length === 0) return 'A Dwellers customer'
+   755→   755→  const first = parts[0]
+   756→   756→  const initial = parts.length > 1 ? ` ${parts[parts.length - 1][0]?.toUpperCase() ?? ''}.` : ''
+   757→   757→  return `${first}${initial}`
+   758→   758→}
+   759→   759→
+   760→   760→/** Real timeline rows, oldest first (PART 45 — never fabricated). */
+   761→   761→async function listRequestEvents(requestId: string) {
+   762→   762→  const events = await db.jobRequestEvent.findMany({
+   763→   763→    where: { jobRequestId: requestId },
+   764→   764→    orderBy: { createdAt: 'asc' },
+   765→   765→    select: { id: true, eventType: true, message: true, createdAt: true, actorRole: true },
+   766→   766→  })
+   767→   767→  return events
+   768→   768→}
+   769→   769→
+   770→   770→// -----------------------------------------------------------------------------
+   771→   771→// Customer transitions (edit / submit / cancel)
+   772→   772→// -----------------------------------------------------------------------------
+   773→   773→
+   774→   774→/**
+   775→   775→ * Owner-only transitions through the central machine: edit while DRAFT,
+   776→   776→ * submit when ready, cancel until the provider has committed further.
+   777→   777→ * Status integrity is enforced here, never by the client (PART 24/74).
+   778→   778→ */
+   779→   779→export async function updateJobRequest(
+   780→   780→  auth: AuthContext | null,
+   781→   781→  id: string,
+   782→   782→  input: UpdateJobRequestInput,
+   783→   783→) {
+   784→   784→  const context = requireAuth(auth)
+   785→   785→  const access = await resolveAccess(auth, id)
+   786→   786→  if (access.side !== 'CUSTOMER') {
+   787→   787→    // Providers and staff never edit customer requests (PART 25/26).
+   788→   788→    throw new ForbiddenError('Only the customer who created this request can change it.')
+   789→   789→  }
+   790→   790→
+   791→   791→  if (input.action === 'submit' || input.action === 'cancel') {
+   792→   792→    const action: JobRequestAction = input.action
+   793→   793→    assertTransition(action, 'CUSTOMER', access.request.status)
+   794→   794→  }
+   795→   795→
+   796→   796→  if (input.action === 'submit') {
+   797→   797→    const full = await db.jobRequest.findUnique({
+   798→   798→      where: { id },
+   799→   799→      select: {
+   800→   800→        title: true,
+   801→   801→        description: true,
+   802→   802→        serviceId: true,
+   803→   803→        providerId: true,
+   804→   804→        locationId: true,
+   805→   805→        preferredDate: true,
+   806→   806→      },
+   807→   807→    })
+   808→   808→    if (!full) throw new NotFoundError('Job request')
+   809→   809→    assertSubmittable({
+   810→   810→      ...full,
+   811→   811→      title: input.title ?? full.title,
+   812→   812→      description: input.description ?? full.description,
+   813→   813→      serviceId: input.serviceId !== undefined ? (input.serviceId ?? null) : full.serviceId,
+   814→   814→      locationId: input.locationId !== undefined ? (input.locationId ?? null) : full.locationId,
+   815→   815→    })
+   816→   816→    if (input.serviceId && access.request.providerId) {
+   817→   817→      await assertProviderOffersService(access.request.providerId, input.serviceId)
+   818→   818→    }
+   819→   819→    await assertJobRequestRefs(input)
+   820→   820→  }
+   821→   821→
+   822→   822→  if (input.action === 'cancel') {
+   823→   823→    await db.$transaction(async (tx) => {
+   824→   824→      await tx.jobRequest.update({
+   825→   825→        where: { id },
+   826→   826→        data: {
+   827→   827→          status: 'CANCELLED',
+   828→   828→          cancelledAt: new Date(),
+   829→   829→          cancellationReason: input.cancellationReason ?? null,
+   830→   830→        },
+   831→   831→      })
+   832→   832→      await tx.jobRequestEvent.create({
+   833→   833→        data: {
+   834→   834→          jobRequestId: id,
+   835→   835→          eventType: 'CANCELLED',
+   836→   836→          actorId: context.userId,
+   837→   837→          actorRole: context.role,
+   838→   838→          message: input.cancellationReason ?? undefined,
+   839→   839→        },
+   840→   840→      })
+   841→   841→    })
+   842→   842→    recordAudit({
+   843→   843→      actorId: context.userId,
+   844→   844→      actorRole: context.role,
+   845→   845→      action: AUDIT_ACTIONS.JOB_REQUEST_CANCELLED,
+   846→   846→      entityType: 'JobRequest',
+   847→   847→      entityId: id,
+   848→   848→      metadata: { reference: access.request.reference },
+   849→   849→    })
+   850→   850→    recordDiscoveryEvent({ type: 'request_cancelled' })
+   851→   851→    const request = await db.jobRequest.findUnique({ where: { id }, ...listSelect })
+   852→   852→    return withListCount(request!)
+   853→   853→  }
+   854→   854→
+   855→   855→  if (input.action === 'submit') {
+   856→   856→    // Field updates ride along with the submit action (wizard final step);
+   857→   857→    // undefined entries are stripped so only provided fields change.
+   858→   858→    const fieldData = pruneUndefined({
+   859→   859→      title: input.title,
+   860→   860→      description: input.description,
+   861→   861→      serviceId: input.serviceId,
+   862→   862→      categoryId: input.categoryId,
+   863→   863→      locationId: input.locationId,
+   864→   864→      communityId: input.communityId,
+   865→   865→      areaText: input.areaText,
+   866→   866→      latitude: input.latitude,
+   867→   867→      longitude: input.longitude,
+   868→   868→      budgetMinAmount: input.budgetMinAmount,
+   869→   869→      budgetMaxAmount: input.budgetMaxAmount,
+   870→   870→      preferredDate: input.preferredDate,
+   871→   871→      preferredTimeSlot: input.preferredTimeSlot,
+   872→   872→      urgency: input.urgency,
+   873→   873→    }) as Prisma.JobRequestUncheckedUpdateInput
+   874→   874→    await db.$transaction(async (tx) => {
+   875→   875→      await tx.jobRequest.update({
+   876→   876→        where: { id },
+   877→   877→        data: {
+   878→   878→          ...fieldData,
+   879→   879→          status: 'SUBMITTED',
+   880→   880→          submittedAt: new Date(),
+   881→   881→        },
+   882→   882→      })
+   883→   883→      await tx.jobRequestEvent.create({
+   884→   884→        data: { jobRequestId: id, eventType: 'SUBMITTED', actorId: context.userId, actorRole: context.role },
+   885→   885→      })
+   886→   886→      await notifyProviderOfNewRequest(tx, {
+   887→   887→        id,
+   888→   888→        providerId: access.request.providerId,
+   889→   889→        serviceId: access.request.serviceId,
+   890→   890→        locationId: access.request.locationId,
+   891→   891→      })
+   892→   892→    })
+   893→   893→    recordAudit({
+   894→   894→      actorId: context.userId,
+   895→   895→      actorRole: context.role,
+   896→   896→      action: AUDIT_ACTIONS.JOB_REQUEST_SUBMITTED,
+   897→   897→      entityType: 'JobRequest',
+   898→   898→      entityId: id,
+   899→   899→      metadata: { reference: access.request.reference },
+   900→   900→    })
+   901→   901→    recordDiscoveryEvent({ type: 'request_submitted' })
+   902→   902→    const request = await db.jobRequest.findUnique({ where: { id }, ...listSelect })
+   903→   903→    return withListCount(request!)
+   904→   904→  }
+   905→   905→
+   906→   906→  // Plain edit — DRAFT only (central machine), never after submission.
+   907→   907→  assertTransition('edit', 'CUSTOMER', access.request.status)
+   908→   908→  if (!EDITABLE_STATUSES.includes(access.request.status as never)) {
+   909→   909→    throw new BadRequestError('Only draft requests can be edited. Cancel it and create a new one.')
+   910→   910→  }
+   911→   911→  await assertJobRequestRefs(input)
+   912→   912→  if (input.serviceId && access.request.providerId) {
+   913→   913→    await assertProviderOffersService(access.request.providerId, input.serviceId)
+   914→   914→  }
+   915→   915→
+   916→   916→  const { action: _action, cancellationReason: _reason, ...fields } = input
+   917→   917→  await db.$transaction(async (tx) => {
+   918→   918→    await tx.jobRequest.update({
+   919→   919→      where: { id },
+   920→   920→      data: fields as Prisma.JobRequestUncheckedUpdateInput,
+   921→   921→    })
+   922→   922→    if (Object.keys(fields).length > 0) {
+   923→   923→      await tx.jobRequestEvent.create({
+   924→   924→        data: { jobRequestId: id, eventType: 'EDITED', actorId: context.userId, actorRole: context.role },
+   925→   925→      })
+   926→   926→    }
+   927→   927→  })
+   928→   928→  recordAudit({
+   929→   929→    actorId: context.userId,
+   930→   930→    actorRole: context.role,
+   931→   931→    action: AUDIT_ACTIONS.JOB_REQUEST_UPDATED,
+   932→   932→    entityType: 'JobRequest',
+   933→   933→    entityId: id,
+   934→   934→    metadata: { reference: access.request.reference },
+   935→   935→  })
+   936→   936→  const request = await db.jobRequest.findUnique({ where: { id }, ...listSelect })
+   937→   937→  return withListCount(request!)
+   938→   938→}
+   939→   939→
+   940→   940→// -----------------------------------------------------------------------------
+   941→   941→// Provider response (PART 31/32)
+   942→   942→// -----------------------------------------------------------------------------
+   943→   943→
+   944→   944→/**
+   945→   945→ * The targeted provider responds: express interest, ask for more
+   946→   946→ * information, or decline — with an optional short message. The response is
+   947→   947→ * atomic: status + responseKind + timeline event + customer notification.
+   948→   948→ */
+   949→   949→export async function respondToJobRequest(
+   950→   950→  auth: AuthContext | null,
+   951→   951→  id: string,
+   952→   952→  input: RespondToJobRequestInput,
+   953→   953→) {
+   954→   954→  const context = requireAuth(auth)
+   955→   955→  const access = await resolveAccess(auth, id)
+   956→   956→  if (access.side !== 'PROVIDER' || !access.canManageProviderSide) {
+   957→   957→    throw new ForbiddenError('Only the provider this request was sent to can respond.')
+   958→   958→  }
+   959→   959→
+   960→   960→  // Central machine — provider actions only from waiting states.
+   961→   961→  assertTransition(input.action, 'PROVIDER', access.request.status)
+   962→   962→  const transition = RESPONSE_TRANSITIONS[input.action]
+   963→   963→
+   964→   964→  // Defense in depth: a suspended/deactivated provider can never act on a
+   965→   965→  // request even if the HTTP layer were bypassed (PART 75).
+   966→   966→  const provider = await db.providerProfile.findUnique({
+   967→   967→    where: { id: access.request.providerId! },
+   968→   968→    select: { id: true, userId: true, user: { select: { status: true } } },
+   969→   969→  })
+   970→   970→  if (!provider || provider.user.status !== 'ACTIVE') {
+   971→   971→    throw new ForbiddenError('This account can no longer be used. Contact Dwellers support.')
+   972→   972→  }
+   973→   973→
+   974→   974→  await db.$transaction(async (tx) => {
+   975→   975→    await tx.jobRequest.update({
+   976→   976→      where: { id },
+   977→   977→      data: {
+   978→   978→        status: transition.status,
+   979→   979→        responseKind: transition.kind,
+   980→   980→        respondedAt: new Date(),
+   981→   981→        viewedAt: access.request.viewedAt ?? new Date(),
+   982→   982→      },
+   983→   983→    })
+   984→   984→    await tx.jobRequestEvent.create({
+   985→   985→      data: {
+   986→   986→        jobRequestId: id,
+   987→   987→        eventType: transition.eventType,
+   988→   988→        actorId: context.userId,
+   989→   989→        actorRole: context.role,
+   990→   990→        message: input.message ?? undefined,
+   991→   991→      },
+   992→   992→    })
+   993→   993→    await tx.notification.create({
+   994→   994→      data: {
+   995→   995→        recipientId: access.request.customerId,
+   996→   996→        type: NOTIFICATION_TYPES.JOB_REQUEST_RESPONSE,
+   997→   997→        channel: 'IN_APP',
+   998→   998→        title: RESPONSE_NOTIFICATION_TITLES[transition.kind],
+   999→   999→        body: 'Open My Job Requests to see the full response.',
+  1000→  1000→        entityType: 'JobRequest',
+  1001→  1001→        entityId: id,
+  1002→  1002→      },
+  1003→  1003→      select: { id: true },
+  1004→  1004→    })
+  1005→  1005→  })
+  1006→  1006→
+  1007→  1007→  recordAudit({
+  1008→  1008→    actorId: context.userId,
+  1009→  1009→    actorRole: context.role,
+  1010→  1010→    action:
+  1011→  1011→      transition.kind === 'DECLINED' ? AUDIT_ACTIONS.JOB_REQUEST_DECLINED : AUDIT_ACTIONS.JOB_REQUEST_RESPONDED,
+  1012→  1012→    entityType: 'JobRequest',
+  1013→  1013→    entityId: id,
+  1014→  1014→    metadata: { reference: access.request.reference, kind: transition.kind },
+  1015→  1015→  })
+  1016→  1016→  recordDiscoveryEvent({ type: 'provider_response' })
+  1017→  1017→
+  1018→  1018→  const request = await db.jobRequest.findUnique({ where: { id }, ...listSelect })
+  1019→  1019→  return withListCount(request!)
+  1020→  1020→}
+  1021→  1021→
+  1022→  1022→const RESPONSE_NOTIFICATION_TITLES: Record<string, string> = {
+  1023→  1023→  INTERESTED: 'Your service request has been accepted.',
+  1024→  1024→  NEEDS_INFO: 'Your service request needs more information.',
+  1025→  1025→  DECLINED: 'Your service request was declined.',
+  1026→  1026→}
+  1027→  1027→
+  1028→  1028→// -----------------------------------------------------------------------------
+  1029→  1029→// Attachments (PART 11–14, 48)
+  1030→  1030→// -----------------------------------------------------------------------------
+  1031→  1031→
+  1032→  1032→/** The customer manages photos until the provider acts; never afterwards. */
+  1033→  1033→async function assertAttachmentsEditable(requestId: string) {
+  1034→  1034→  const request = await db.jobRequest.findUnique({
+  1035→  1035→    where: { id: requestId },
+  1036→  1036→    select: { status: true },
+  1037→  1037→  })
+  1038→  1038→  if (!request) throw new NotFoundError('Job request')
+  1039→  1039→  if (!ATTACHMENT_EDITABLE_STATUSES.includes(request.status as never)) {
+  1040→  1040→    throw new BadRequestError('Photos can no longer be changed on this request.')
+  1041→  1041→  }
+  1042→  1042→  return request.status
+  1043→  1043→}
+  1044→  1044→
+  1045→  1045→export async function recordJobRequestAttachment(
+  1046→  1046→  auth: AuthContext | null,
+  1047→  1047→  requestId: string,
+  1048→  1048→  photo: { storageKey: string; originalName?: string | null; mimeType?: string | null; sizeBytes?: number | null },
+  1049→  1049→) {
+  1050→  1050→  const context = requireAuth(auth)
+  1051→  1051→  const access = await resolveAccess(auth, requestId)
+  1052→  1052→  if (access.side !== 'CUSTOMER') {
+  1053→  1053→    throw new ForbiddenError('Only the customer who created this request can add photos.')
+  1054→  1054→  }
+  1055→  1055→  await assertAttachmentsEditable(requestId)
+  1056→  1056→
+  1057→  1057→  const count = await db.jobRequestAttachment.count({ where: { jobRequestId: requestId } })
+  1058→  1058→  if (count >= MAX_JOB_REQUEST_ATTACHMENTS) {
+  1059→  1059→    throw new ValidationError({
+  1060→  1060→      attachments: [`A request can hold at most ${MAX_JOB_REQUEST_ATTACHMENTS} photos.`],
+  1061→  1061→    })
+  1062→  1062→  }
+  1063→  1063→
+  1064→  1064→  const created = await db.$transaction(async (tx) => {
+  1065→  1065→    const row = await tx.jobRequestAttachment.create({
+  1066→  1066→      data: {
+  1067→  1067→        jobRequestId: requestId,
+  1068→  1068→        storageKey: photo.storageKey,
+  1069→  1069→        originalName: photo.originalName ?? null,
+  1070→  1070→        mimeType: photo.mimeType ?? null,
+  1071→  1071→        sizeBytes: photo.sizeBytes ?? null,
+  1072→  1072→        kind: 'PHOTO',
+  1073→  1073→        uploadedById: context.userId,
+  1074→  1074→      },
+  1075→  1075→    })
+  1076→  1076→    await tx.jobRequestEvent.create({
+  1077→  1077→      data: {
+  1078→  1078→        jobRequestId: requestId,
+  1079→  1079→        eventType: 'ATTACHMENT_ADDED',
+  1080→  1080→        actorId: context.userId,
+  1081→  1081→        actorRole: context.role,
+  1082→  1082→        message: row.originalName ?? undefined,
+  1083→  1083→      },
+  1084→  1084→    })
+  1085→  1085→    return row
+  1086→  1086→  })
+  1087→  1087→
+  1088→  1088→  recordAudit({
+  1089→  1089→    actorId: context.userId,
+  1090→  1090→    actorRole: context.role,
+  1091→  1091→    action: AUDIT_ACTIONS.JOB_REQUEST_ATTACHMENT_ADDED,
+  1092→  1092→    entityType: 'JobRequest',
+  1093→  1093→    entityId: requestId,
+  1094→  1094→    metadata: { attachmentId: created.id },
+  1095→  1095→  })
+  1096→  1096→  recordDiscoveryEvent({ type: 'request_attachment_added' })
+  1097→  1097→  return created
+  1098→  1098→}
+  1099→  1099→
+  1100→  1100→export async function removeJobRequestAttachment(
+  1101→  1101→  auth: AuthContext | null,
+  1102→  1102→  requestId: string,
+  1103→  1103→  attachmentId: string,
+  1104→  1104→) {
+  1105→  1105→  const context = requireAuth(auth)
+  1106→  1106→  const access = await resolveAccess(auth, requestId)
+  1107→  1107→  if (access.side !== 'CUSTOMER') {
+  1108→  1108→    throw new ForbiddenError('Only the customer who created this request can remove photos.')
+  1109→  1109→  }
+  1110→  1110→  await assertAttachmentsEditable(requestId)
+  1111→  1111→
+  1112→  1112→  const attachment = await db.jobRequestAttachment.findFirst({
+  1113→  1113→    where: { id: attachmentId, jobRequestId: requestId },
+  1114→  1114→  })
+  1115→  1115→  if (!attachment) throw new NotFoundError('Attachment')
+  1116→  1116→
+  1117→  1117→  await db.$transaction(async (tx) => {
+  1118→  1118→    await tx.jobRequestAttachment.delete({ where: { id: attachment.id } })
+  1119→  1119→    await tx.jobRequestEvent.create({
+  1120→  1120→      data: {
+  1121→  1121→        jobRequestId: requestId,
+  1122→  1122→        eventType: 'ATTACHMENT_REMOVED',
+  1123→  1123→        actorId: context.userId,
+  1124→  1124→        actorRole: context.role,
+  1125→  1125→      },
+  1126→  1126→    })
+  1127→  1127→  })
+  1128→  1128→
+  1129→  1129→  recordAudit({
+  1130→  1130→    actorId: context.userId,
+  1131→  1131→    actorRole: context.role,
+  1132→  1132→    action: AUDIT_ACTIONS.JOB_REQUEST_ATTACHMENT_REMOVED,
+  1133→  1133→    entityType: 'JobRequest',
+  1134→  1134→    entityId: requestId,
+  1135→  1135→    metadata: { attachmentId: attachment.id },
+  1136→  1136→  })
+  1137→  1137→  return { id: attachment.id, storageKey: attachment.storageKey }
+  1138→  1138→}
+  1139→  1139→
+  1140→  1140→/** Timeline read — both authorized sides see the same real events. */
+  1141→  1141→export async function getJobRequestTimeline(auth: AuthContext | null, id: string) {
+  1142→  1142→  await resolveAccess(auth, id)
+  1143→  1143→  return listRequestEvents(id)
+  1144→  1144→}
+  1145→  1145→
+  1146→  1146→/** Attachment read authorization — the file bytes themselves never leak. */
+  1147→  1147→export async function getJobRequestAttachmentForViewing(
+  1148→  1148→  auth: AuthContext | null,
+  1149→  1149→  requestId: string,
+  1150→  1150→  attachmentId: string,
+  1151→  1151→) {
+  1152→  1152→  await resolveAccess(auth, requestId)
+  1153→  1153→  const attachment = await db.jobRequestAttachment.findFirst({
+  1154→  1154→    where: { id: attachmentId, jobRequestId: requestId },
+  1155→  1155→  })
+  1156→  1156→  if (!attachment) throw new NotFoundError('Attachment')
+  1157→  1157→  return attachment
+  1158→  1158→}
+  1159→  1159→

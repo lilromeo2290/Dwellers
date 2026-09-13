@@ -1,0 +1,1325 @@
+     1→/**
+     2→ * Dwellers — Provider discovery engine (Phase 4).
+     3→ *
+     4→ * THE one discovery backend for every entry point (homepage search, /find,
+     5→ * category landings, location landings, provider directory, search URLs and
+     6→ * the REST API). Nothing in the UI re-implements search logic (PART 2).
+     7→ *
+     8→ * Pipeline (PART 20):
+     9→ *   1. validate criteria (zod, strict — no arbitrary query values)
+    10→ *   2. resolve location (community→town, district/region sweeps, coordinates)
+    11→ *   3. resolve service/category (id or slug, subtree expansion)
+    12→ *   4. hard filters — active account, offered service, covering service area,
+    13→ *      public eligibility (suspension is a LIVE user-status check)
+    14→ *   5. fetch eligible candidates (capped, minimal selects, no N+1)
+    15→ *   6. score relevance via the central ranking configuration
+    16→ *   7. rank, 8. sort, 9. paginate (server-side), 10. return a standardized,
+    17→ *      privacy-safe result envelope (no emails, phones or raw coordinates).
+    18→ *
+    19→ * Matching is grounded in real rows: "provider offers the service" means an
+    20→ * ACTIVE Service row inside the requested category subtree; "serves the
+    21→ * area" means a ProviderServiceArea row (or the profile base location).
+    22→ * Nothing is inferred from free-text addresses (PART 11).
+    23→ */
+    24→import { z } from 'zod'
+    25→import { db } from '@/lib/db'
+    26→import { NotFoundError, ValidationError } from '@/lib/errors'
+    27→import { safeText } from '@/lib/api/schemas'
+    28→import { paginationQuerySchema, buildPaginationMeta } from '@/lib/api/pagination'
+    29→import type { PaginationMeta } from '@/types/api'
+    30→import { haversineKm } from '@/lib/geo'
+    31→import {
+    32→  DISCOVERY_WEIGHTS,
+    33→  AVAILABILITY_SCORES,
+    34→  VERIFICATION_SCORES,
+    35→  RATING_MIN_COUNT,
+    36→  NEUTRAL_COMPONENT_SCORE,
+    37→  EXPERIENCE_FULL_SCORE_YEARS,
+    38→  DISTANCE_BANDS,
+    39→  NEARBY_RADIUS_KM,
+    40→  LOCATION_HIERARCHY_SCORES,
+    41→  SERVICE_MATCH_SCORES,
+    42→  DISCOVERY_CANDIDATE_CAP,
+    43→  distanceBandFor,
+    44→  type DistanceBand,
+    45→} from '@/modules/discovery/ranking'
+    46→
+    47→// -----------------------------------------------------------------------------
+    48→// Criteria schema (PART 19 — every parameter validated, nothing arbitrary)
+    49→// -----------------------------------------------------------------------------
+    50→
+    51→export const DISCOVERY_SORTS = [
+    52→  'recommended',
+    53→  'nearest',
+    54→  'rating',
+    55→  'experience',
+    56→  'price',
+    57→  'response',
+    58→] as const
+    59→
+    60→export const discoveryQuerySchema = paginationQuerySchema
+    61→  .extend({
+    62→    categoryId: z.string().min(1).max(64).optional(),
+    63→    categorySlug: safeText(80).optional(),
+    64→    serviceId: z.string().min(1).max(64).optional(),
+    65→    regionId: z.string().min(1).max(64).optional(),
+    66→    districtId: z.string().min(1).max(64).optional(),
+    67→    townId: z.string().min(1).max(64).optional(),
+    68→    communityId: z.string().min(1).max(64).optional(),
+    69→    /** Explicit search point (used when the UI has coordinates, e.g. maps). */
+    70→    latitude: z.coerce.number().min(-90).max(90).optional(),
+    71→    longitude: z.coerce.number().min(-180).max(180).optional(),
+    72→    verification: z.enum(['UNVERIFIED', 'PENDING', 'VERIFIED']).optional(),
+    73→    availability: z.enum(['AVAILABLE', 'BUSY', 'UNAVAILABLE']).optional(),
+    74→    minRating: z.coerce.number().min(0).max(5).optional(),
+    75→    /** Integer pesewas — upper bound on the provider's starting price. */
+    76→    maxPrice: z.coerce.number().int().min(0).max(1_000_000_000).optional(),
+    77→    providerType: z.enum(['INDIVIDUAL', 'BUSINESS']).optional(),
+    78→    maxDistanceKm: z.coerce.number().min(0).max(500).optional(),
+    79→    q: safeText(80).optional(),
+    80→    sort: z.enum(DISCOVERY_SORTS).default('recommended'),
+    81→  })
+    82→  .strict()
+    83→
+    84→export type DiscoveryQuery = z.infer<typeof discoveryQuerySchema>
+    85→
+    86→// -----------------------------------------------------------------------------
+    87→// Result types (privacy-safe by construction)
+    88→// -----------------------------------------------------------------------------
+    89→
+    90→export interface DiscoveryRating {
+    91→  average: number // 0–5, one decimal
+    92→  count: number
+    93→}
+    94→
+    95→export interface DiscoveryResult {
+    96→  providerId: string
+    97→  /** Business name for business-affiliated providers, otherwise the person. */
+    98→  displayName: string
+    99→  providerType: 'INDIVIDUAL' | 'BUSINESS'
+   100→  businessId: string | null
+   101→  businessName: string | null
+   102→  profession: string
+   103→  headline: string | null
+   104→  avatarKey: string | null
+   105→  verificationStatus: string
+   106→  rating: DiscoveryRating | null // null = no published reviews yet
+   107→  yearsExperience: number
+   108→  availabilityStatus: string
+   109→  /** Integer pesewas; null = quote required / not published. */
+   110→  startingPriceAmount: number | null
+   111→  currency: string
+   112→  completedJobsCount: number
+   113→  primaryLocation: { id: string; name: string; regionName: string | null } | null
+   114→  /** Distinct towns the provider explicitly serves (up to 4 for display). */
+   115→  serviceAreas: { id: string; name: string; regionName: string | null }[]
+   116→  serviceAreaCount: number
+   117→  /** Active services inside the searched category (display, max 3). */
+   118→  matchedServiceNames: string[]
+   119→  portfolioCount: number
+   120→  /** Distance from the requested location — derived, never raw coordinates. */
+   121→  distanceKm: number | null
+   122→  distanceBand: DistanceBand['label'] | null
+   123→  /** Plain-language reasons (PART 40) — the numeric score stays internal. */
+   124→  reasons: string[]
+   125→}
+   126→
+   127→export interface DiscoveryLocationContext {
+   128→  level: 'community' | 'town' | 'district' | 'region' | null
+   129→  /** What the customer searched, e.g. "Nsawam" / "Greater Accra Region". */
+   130→  label: string | null
+   131→  breadcrumb: { label: string; href: string | null }[]
+   132→  /** Suggested nearby towns for empty states (PART 17/18). */
+   133→  nearbyAreas: { id: string; name: string; slug: string; distanceKm: number | null }[]
+   134→}
+   135→
+   136→export interface DiscoveryResponse {
+   137→  criteria: {
+   138→    categoryId: string | null
+   139→    categoryName: string | null
+   140→    categorySlug: string | null
+   141→    serviceId: string | null
+   142→    regionId: string | null
+   143→    districtId: string | null
+   144→    townId: string | null
+   145→    communityId: string | null
+   146→    providerType: 'INDIVIDUAL' | 'BUSINESS' | null
+   147→    verification: string | null
+   148→    availability: string | null
+   149→    minRating: number | null
+   150→    maxPrice: number | null
+   151→    q: string | null
+   152→    sort: (typeof DISCOVERY_SORTS)[number]
+   153→    /** Human summary of WHAT was searched, e.g. "Plumbing". */
+   154→    whatLabel: string
+   155→  }
+   156→  location: DiscoveryLocationContext
+   157→  items: DiscoveryResult[]
+   158→  pagination: PaginationMeta
+   159→  /** Present ONLY when nothing matched exactly — always clearly labeled. */
+   160→  nearby: { label: 'Nearby providers'; items: DiscoveryResult[]; total: number } | null
+   161→}
+   162→
+   163→// -----------------------------------------------------------------------------
+   164→// Analytics (PART 32) — privacy-safe, never breaks a search
+   165→// -----------------------------------------------------------------------------
+   166→
+   167→export const DISCOVERY_EVENT_TYPES = [
+   168→  'provider_search',
+   169→  'service_search',
+   170→  'location_search',
+   171→  'provider_profile_view',
+   172→  'filter_used',
+   173→  'provider_contact_clicked',
+   174→  'request_service_clicked',
+   175→] as const
+   176→
+   177→export type DiscoveryEventType = (typeof DISCOVERY_EVENT_TYPES)[number]
+   178→
+   179→export interface DiscoveryEventInput {
+   180→  type: DiscoveryEventType
+   181→  categoryId?: string | null
+   182→  serviceId?: string | null
+   183→  regionId?: string | null
+   184→  districtId?: string | null
+   185→  townId?: string | null
+   186→  communityId?: string | null
+   187→  providerId?: string | null
+   188→  resultCount?: number | null
+   189→  sort?: string | null
+   190→  page?: number | null
+   191→}
+   192→
+   193→/** Fire-and-forget analytics writer — analytics must never fail a search. */
+   194→export async function recordDiscoveryEvent(event: DiscoveryEventInput): Promise<void> {
+   195→  try {
+   196→    await db.discoveryEvent.create({
+   197→      data: {
+   198→        eventType: event.type,
+   199→        categoryId: event.categoryId ?? null,
+   200→        serviceId: event.serviceId ?? null,
+   201→        regionId: event.regionId ?? null,
+   202→        districtId: event.districtId ?? null,
+   203→        townId: event.townId ?? null,
+   204→        communityId: event.communityId ?? null,
+   205→        providerId: event.providerId ?? null,
+   206→        resultCount: event.resultCount ?? null,
+   207→        sort: event.sort ?? null,
+   208→        page: event.page ?? null,
+   209→      },
+   210→    })
+   211→  } catch {
+   212→    // Deliberately swallowed: analytics is best-effort by design.
+   213→  }
+   214→}
+   215→
+   216→// -----------------------------------------------------------------------------
+   217→// Resolution helpers
+   218→// -----------------------------------------------------------------------------
+   219→
+   220→interface ResolvedLocation {
+   221→  level: 'community' | 'town' | 'district' | 'region' | null
+   222→  /** Search point for distance calculations, when known. */
+   223→  point: { latitude: number; longitude: number } | null
+   224→  /** Hard-filter shape (mutually exclusive tiers). */
+   225→  scope:
+   226→    | { kind: 'town'; townId: string }
+   227→    | { kind: 'district'; districtId: string; townIds: string[] }
+   228→    | { kind: 'region'; regionId: string }
+   229→    | { kind: 'none' }
+   230→  label: string | null
+   231→  breadcrumb: { label: string; href: string | null }[]
+   232→  /** Requested town (when any), even under district/region sweeps. */
+   233→  contextTownId: string | null
+   234→}
+   235→
+   236→interface ResolvedCategory {
+   237→  id: string
+   238→  name: string
+   239→  slug: string
+   240→  description: string | null
+   241→  /** The category plus all descendant IDs (tree depth ≤ 3). */
+   242→  subtreeIds: string[]
+   243→}
+   244→
+   245→/** Resolves the location tier from validated criteria. Unknown IDs throw a
+   246→ *  ValidationError (not 404) — they are query parameters, not resources. */
+   247→async function resolveLocation(query: DiscoveryQuery): Promise<ResolvedLocation> {
+   248→  // Community → its town (service areas are Town-level).
+   249→  if (query.communityId) {
+   250→    const community = await db.communityArea.findFirst({
+   251→      where: { id: query.communityId, isActive: true },
+   252→      include: {
+   253→        town: { include: { district: true, region: true } },
+   254→      },
+   255→    })
+   256→    if (!community) throw new ValidationError({ communityId: ['Unknown community'] })
+   257→    const { town } = community
+   258→    return {
+   259→      level: 'community',
+   260→      point: pointOf(community.latitude, community.longitude) ?? pointOf(town.latitude, town.longitude),
+   261→      scope: { kind: 'town', townId: town.id },
+   262→      label: `${community.name} (${town.name})`,
+   263→      breadcrumb: [
+   264→        { label: 'Ghana', href: '/find' },
+   265→        { label: town.region.name, href: `/find?regionId=${town.regionId}` },
+   266→        { label: town.district.name, href: null },
+   267→        { label: town.name, href: `/find?townId=${town.id}` },
+   268→        { label: community.name, href: null },
+   269→      ],
+   270→      contextTownId: town.id,
+   271→    }
+   272→  }
+   273→
+   274→  if (query.townId) {
+   275→    const town = await db.town.findFirst({
+   276→      where: { id: query.townId, isActive: true },
+   277→      include: { district: true, region: true },
+   278→    })
+   279→    if (!town) throw new ValidationError({ townId: ['Unknown town'] })
+   280→    return {
+   281→      level: 'town',
+   282→      point: pointOf(town.latitude, town.longitude),
+   283→      scope: { kind: 'town', townId: town.id },
+   284→      label: town.name,
+   285→      breadcrumb: [
+   286→        { label: 'Ghana', href: '/find' },
+   287→        { label: town.region.name, href: `/find?regionId=${town.regionId}` },
+   288→        { label: town.district.name, href: null },
+   289→        { label: town.name, href: `/find?townId=${town.id}` },
+   290→      ],
+   291→      contextTownId: town.id,
+   292→    }
+   293→  }
+   294→
+   295→  if (query.districtId) {
+   296→    const district = await db.district.findFirst({
+   297→      where: { id: query.districtId, isActive: true },
+   298→      include: { region: true },
+   299→    })
+   300→    if (!district) throw new ValidationError({ districtId: ['Unknown district'] })
+   301→    const towns = await db.town.findMany({
+   302→      where: { districtId: district.id, isActive: true },
+   303→      select: { id: true },
+   304→    })
+   305→    return {
+   306→      level: 'district',
+   307→      point: pointOf(district.latitude, district.longitude),
+   308→      scope: { kind: 'district', districtId: district.id, townIds: towns.map((t) => t.id) },
+   309→      label: district.name,
+   310→      breadcrumb: [
+   311→        { label: 'Ghana', href: '/find' },
+   312→        { label: district.region.name, href: `/find?regionId=${district.regionId}` },
+   313→        { label: district.name, href: null },
+   314→      ],
+   315→      contextTownId: null,
+   316→    }
+   317→  }
+   318→
+   319→  if (query.regionId) {
+   320→    const region = await db.region.findFirst({
+   321→      where: { id: query.regionId, isActive: true },
+   322→    })
+   323→    if (!region) throw new ValidationError({ regionId: ['Unknown region'] })
+   324→    return {
+   325→      level: 'region',
+   326→      point: pointOf(region.latitude, region.longitude),
+   327→      scope: { kind: 'region', regionId: region.id },
+   328→      label: `${region.name} Region`,
+   329→      breadcrumb: [
+   330→        { label: 'Ghana', href: '/find' },
+   331→        { label: region.name, href: null },
+   332→      ],
+   333→      contextTownId: null,
+   334→    }
+   335→  }
+   336→
+   337→  if (query.latitude !== undefined && query.longitude !== undefined) {
+   338→    return {
+   339→      level: null,
+   340→      point: { latitude: query.latitude, longitude: query.longitude },
+   341→      scope: { kind: 'none' },
+   342→      label: null,
+   343→      breadcrumb: [{ label: 'Ghana', href: '/find' }],
+   344→      contextTownId: null,
+   345→    }
+   346→  }
+   347→
+   348→  return {
+   349→    level: null,
+   350→    point: null,
+   351→    scope: { kind: 'none' },
+   352→    label: null,
+   353→    breadcrumb: [{ label: 'Ghana', href: '/find' }],
+   354→    contextTownId: null,
+   355→  }
+   356→}
+   357→
+   358→function pointOf(
+   359→  latitude: number | null | undefined,
+   360→  longitude: number | null | undefined,
+   361→): { latitude: number; longitude: number } | null {
+   362→  if (latitude === null || latitude === undefined || longitude === null || longitude === undefined) {
+   363→    return null
+   364→  }
+   365→  return { latitude, longitude }
+   366→}
+   367→
+   368→/** Resolves the requested category by ID or slug and expands its subtree. */
+   369→async function resolveCategory(query: DiscoveryQuery): Promise<ResolvedCategory | null> {
+   370→  const base = query.categoryId
+   371→    ? await db.category.findFirst({ where: { id: query.categoryId, isActive: true } })
+   372→    : query.categorySlug
+   373→      ? await db.category.findFirst({ where: { slug: query.categorySlug, isActive: true } })
+   374→      : null
+   375→  if (!base) {
+   376→    if (query.categoryId || query.categorySlug) {
+   377→      throw new ValidationError(
+   378→        query.categoryId
+   379→          ? { categoryId: ['Unknown category'] }
+   380→          : { categorySlug: ['Unknown category'] },
+   381→      )
+   382→    }
+   383→    return null
+   384→  }
+   385→
+   386→  // Subtree expansion (depth ≤ 3): children, then grandchildren.
+   387→  const subtreeIds = [base.id]
+   388→  let frontier = [base.id]
+   389→  for (let depth = 0; depth < 2 && frontier.length > 0; depth += 1) {
+   390→    const children = await db.category.findMany({
+   391→      where: { parentId: { in: frontier }, isActive: true },
+   392→      select: { id: true },
+   393→    })
+   394→    frontier = children.map((c) => c.id)
+   395→    subtreeIds.push(...frontier)
+   396→  }
+   397→
+   398→  return {
+   399→    id: base.id,
+   400→    name: base.name,
+   401→    slug: base.slug,
+   402→    description: base.description,
+   403→    subtreeIds,
+   404→  }
+   405→}
+   406→
+   407→/** Distance between two points in km (Haversine, PART 12). */
+   408→function haversineKmLocal(a: { latitude: number; longitude: number }, b: { latitude: number; longitude: number }): number {
+   409→  return haversineKm(a.latitude, a.longitude, b.latitude, b.longitude)
+   410→}
+   411→
+   412→// -----------------------------------------------------------------------------
+   413→// Candidate fetching
+   414→// -----------------------------------------------------------------------------
+   415→
+   416→interface CandidateTown {
+   417→  id: string
+   418→  name: string
+   419→  regionName: string | null
+   420→  latitude: number | null
+   421→  longitude: number | null
+   422→}
+   423→
+   424→interface Candidate {
+   425→  id: string
+   426→  profession: string
+   427→  headline: string | null
+   428→  yearsExperience: number
+   429→  availabilityStatus: string
+   430→  startingPriceAmount: number | null
+   431→  currency: string
+   432→  verificationStatus: string
+   433→  ratingSum: number
+   434→  ratingCount: number
+   435→  completedJobsCount: number
+   436→  responseRatePercent: number | null
+   437→  businessId: string | null
+   438→  user: { name: string | null; avatarKey: string | null }
+   439→  business: { id: string; name: string } | null
+   440→  primaryLocation: CandidateTown | null
+   441→  serviceAreas: { location: CandidateTown }[]
+   442→  matchedServices: { name: string; categoryId: string }[]
+   443→  portfolioCount: number
+   444→}
+   445→
+   446→/** Builds the hard-filter WHERE clause for a resolved scope. */
+   447→function locationWhere(scope: ResolvedLocation['scope']) {
+   448→  switch (scope.kind) {
+   449→    case 'town':
+   450→      return {
+   451→        OR: [
+   452→          { primaryLocationId: scope.townId },
+   453→          { serviceAreas: { some: { locationId: scope.townId } } },
+   454→        ],
+   455→      }
+   456→    case 'district':
+   457→      return {
+   458→        OR: [
+   459→          { primaryLocationId: { in: scope.townIds } },
+   460→          { serviceAreas: { some: { locationId: { in: scope.townIds } } } },
+   461→        ],
+   462→      }
+   463→    case 'region':
+   464→      return {
+   465→        OR: [
+   466→          { primaryLocation: { regionId: scope.regionId } },
+   467→          { serviceAreas: { some: { location: { regionId: scope.regionId } } } },
+   468→        ],
+   469→      }
+   470→    default:
+   471→      return {}
+   472→  }
+   473→}
+   474→
+   475→const CANDIDATE_SELECT = {
+   476→  id: true,
+   477→  profession: true,
+   478→  headline: true,
+   479→  yearsExperience: true,
+   480→  availabilityStatus: true,
+   481→  startingPriceAmount: true,
+   482→  currency: true,
+   483→  verificationStatus: true,
+   484→  ratingSum: true,
+   485→  ratingCount: true,
+   486→  completedJobsCount: true,
+   487→  responseRatePercent: true,
+   488→  businessId: true,
+   489→  user: { select: { name: true, avatarKey: true } },
+   490→  business: { select: { id: true, name: true } },
+   491→  primaryLocation: {
+   492→    select: { id: true, name: true, latitude: true, longitude: true, region: { select: { name: true } } },
+   493→  },
+   494→  serviceAreas: {
+   495→    select: {
+   496→      location: {
+   497→        select: { id: true, name: true, latitude: true, longitude: true, region: { select: { name: true } } },
+   498→      },
+   499→    },
+   500→  },
+   501→  _count: { select: { portfolioItems: true } },
+   502→} as const
+   503→
+   504→function shapeCandidate(row: {
+   505→  id: string
+   506→  profession: string
+   507→  headline: string | null
+   508→  yearsExperience: number
+   509→  availabilityStatus: string
+   510→  startingPriceAmount: number | null
+   511→  currency: string
+   512→  verificationStatus: string
+   513→  ratingSum: number
+   514→  ratingCount: number
+   515→  completedJobsCount: number
+   516→  responseRatePercent: number | null
+   517→  businessId: string | null
+   518→  user: { name: string | null; avatarKey: string | null }
+   519→  business: { id: string; name: string } | null
+   520→  primaryLocation: {
+   521→    id: string
+   522→    name: string
+   523→    latitude: number | null
+   524→    longitude: number | null
+   525→    region: { name: string } | null
+   526→  } | null
+   527→  serviceAreas: {
+   528→    location: {
+   529→      id: string
+   530→      name: string
+   531→      latitude: number | null
+   532→      longitude: number | null
+   533→      region: { name: string } | null
+   534→    }
+   535→  }[]
+   536→  _count: { portfolioItems: number }
+   537→}): Candidate {
+   538→  return {
+   539→    id: row.id,
+   540→    profession: row.profession,
+   541→    headline: row.headline,
+   542→    yearsExperience: row.yearsExperience,
+   543→    availabilityStatus: row.availabilityStatus,
+   544→    startingPriceAmount: row.startingPriceAmount,
+   545→    currency: row.currency,
+   546→    verificationStatus: row.verificationStatus,
+   547→    ratingSum: row.ratingSum,
+   548→    ratingCount: row.ratingCount,
+   549→    completedJobsCount: row.completedJobsCount,
+   550→    responseRatePercent: row.responseRatePercent,
+   551→    businessId: row.businessId,
+   552→    user: row.user,
+   553→    business: row.business,
+   554→    primaryLocation: row.primaryLocation
+   555→      ? {
+   556→          id: row.primaryLocation.id,
+   557→          name: row.primaryLocation.name,
+   558→          regionName: row.primaryLocation.region?.name ?? null,
+   559→          latitude: row.primaryLocation.latitude,
+   560→          longitude: row.primaryLocation.longitude,
+   561→        }
+   562→      : null,
+   563→    serviceAreas: row.serviceAreas.map(({ location }) => ({
+   564→      location: {
+   565→        id: location.id,
+   566→        name: location.name,
+   567→        regionName: location.region?.name ?? null,
+   568→        latitude: location.latitude,
+   569→        longitude: location.longitude,
+   570→      },
+   571→    })),
+   572→    matchedServices: [],
+   573→    portfolioCount: row._count.portfolioItems,
+   574→  }
+   575→}
+   576→
+   577→// -----------------------------------------------------------------------------
+   578→// Scoring (PART 10 — weights from the central configuration only)
+   579→// -----------------------------------------------------------------------------
+   580→
+   581→interface ScoredComponent {
+   582→  key: keyof typeof DISCOVERY_WEIGHTS
+   583→  score: number
+   584→  available: boolean
+   585→}
+   586→
+   587→interface ScoredCandidate {
+   588→  candidate: Candidate
+   589→  components: Record<string, ScoredComponent>
+   590→  total: number // 0–100
+   591→  distanceKm: number | null
+   592→  distanceBand: DistanceBand | null
+   593→  exactLocation: boolean
+   594→  reasons: string[]
+   595→}
+   596→
+   597→function scoreCandidate(
+   598→  candidate: Candidate,
+   599→  context: {
+   600→    category: ResolvedCategory | null
+   601→    location: ResolvedLocation
+   602→    maxDistanceKm: number | null
+   603→  },
+   604→): ScoredCandidate {
+   605→  const reasons: string[] = []
+   606→
+   607→  // SERVICE MATCH ------------------------------------------------------------
+   608→  let serviceScore: ScoredComponent = {
+   609→    key: 'serviceMatch',
+   610→    score: 0,
+   611→    available: context.category !== null,
+   612→  }
+   613→  if (context.category) {
+   614→    const exact = candidate.matchedServices.some((s) => s.categoryId === context.category!.id)
+   615→    serviceScore = { ...serviceScore, score: exact ? SERVICE_MATCH_SCORES.exact : SERVICE_MATCH_SCORES.ancestor }
+   616→    if (exact) reasons.push(`Offers ${context.category.name}`)
+   617→  }
+   618→
+   619→  // LOCATION / SERVICE AREA MATCH -------------------------------------------
+   620→  const exactTownId =
+   621→    context.location.scope.kind === 'town'
+   622→      ? context.location.scope.townId
+   623→      : context.location.contextTownId
+   624→  const exactLocation =
+   625→    exactTownId !== null &&
+   626→    (candidate.primaryLocation?.id === exactTownId ||
+   627→      candidate.serviceAreas.some((area) => area.location.id === exactTownId))
+   628→
+   629→  let distanceKm: number | null = null
+   630→  if (context.location.point) {
+   631→    const towns = [
+   632→      candidate.primaryLocation,
+   633→      ...candidate.serviceAreas.map((a) => a.location),
+   634→    ].filter((town): town is CandidateTown => town !== null)
+   635→    let best: number | null = null
+   636→    for (const town of towns) {
+   637→      const townPoint = pointOf(town.latitude, town.longitude)
+   638→      if (!townPoint) continue
+   639→      const d = haversineKmLocal(context.location.point, townPoint)
+   640→      if (best === null || d < best) best = d
+   641→    }
+   642→    distanceKm = best
+   643→  }
+   644→
+   645→  let locationScore: number
+   646→  if (exactLocation) {
+   647→    locationScore = LOCATION_HIERARCHY_SCORES.communityOrTown
+   648→    reasons.push('Serves your area')
+   649→  } else if (distanceKm !== null) {
+   650→    const band = distanceBandFor(distanceKm)
+   651→    locationScore = band.score
+   652→    reasons.push(`About ${band.label} away`)
+   653→  } else {
+   654→    locationScore =
+   655→      context.location.scope.kind === 'district'
+   656→        ? LOCATION_HIERARCHY_SCORES.districtSweep
+   657→        : LOCATION_HIERARCHY_SCORES.regionSweep
+   658→    reasons.push('Serves your wider area')
+   659→  }
+   660→  const locationComponent: ScoredComponent = {
+   661→    key: 'locationMatch',
+   662→    score: locationScore,
+   663→    available: context.location.scope.kind !== 'none' || context.location.point !== null,
+   664→  }
+   665→
+   666→  // AVAILABILITY (real field, PART 13 — never inferred from account status) --
+   667→  const availabilityScore = AVAILABILITY_SCORES[candidate.availabilityStatus] ?? NEUTRAL_COMPONENT_SCORE
+   668→  if (candidate.availabilityStatus === 'AVAILABLE') reasons.push('Available now')
+   669→  const availabilityComponent: ScoredComponent = {
+   670→    key: 'availability',
+   671→    score: availabilityScore,
+   672→    available: true,
+   673→  }
+   674→
+   675→  // RATING / REVIEW QUALITY --------------------------------------------------
+   676→  const hasRating = candidate.ratingCount >= RATING_MIN_COUNT
+   677→  const ratingAverage = hasRating ? candidate.ratingSum / candidate.ratingCount : null
+   678→  const ratingComponent: ScoredComponent = {
+   679→    key: 'rating',
+   680→    score: hasRating ? Math.min(Math.max(ratingAverage! / 5, 0), 1) : NEUTRAL_COMPONENT_SCORE,
+   681→    available: hasRating, // unrated providers are NOT falsely scored
+   682→  }
+   683→  if (hasRating && ratingAverage! >= 4) reasons.push('Highly rated')
+   684→
+   685→  // RESPONSE RATE ------------------------------------------------------------
+   686→  const responseComponent: ScoredComponent = {
+   687→    key: 'responseRate',
+   688→    score:
+   689→      candidate.responseRatePercent === null
+   690→        ? NEUTRAL_COMPONENT_SCORE
+   691→        : Math.min(Math.max(candidate.responseRatePercent / 100, 0), 1),
+   692→    available: candidate.responseRatePercent !== null,
+   693→  }
+   694→
+   695→  // EXPERIENCE ---------------------------------------------------------------
+   696→  const experienceComponent: ScoredComponent = {
+   697→    key: 'experience',
+   698→    score: Math.min(candidate.yearsExperience / EXPERIENCE_FULL_SCORE_YEARS, 1),
+   699→    available: candidate.yearsExperience > 0,
+   700→  }
+   701→
+   702→  // VERIFICATION -------------------------------------------------------------
+   703→  const verificationScore = VERIFICATION_SCORES[candidate.verificationStatus] ?? 0
+   704→  if (candidate.verificationStatus === 'VERIFIED') reasons.push('Verified provider')
+   705→  const verificationComponent: ScoredComponent = {
+   706→    key: 'verification',
+   707→    score: verificationScore,
+   708→    available: true,
+   709→  }
+   710→
+   711→  const components: Record<string, ScoredComponent> = {
+   712→    serviceMatch: serviceScore,
+   713→    locationMatch: locationComponent,
+   714→    availability: availabilityComponent,
+   715→    rating: ratingComponent,
+   716→    responseRate: responseComponent,
+   717→    experience: experienceComponent,
+   718→    verification: verificationComponent,
+   719→  }
+   720→
+   721→  // Neutral-fill: components without real data score NEUTRAL (0.5) and keep
+   722→  // their weight — missing information pulls toward the middle, never boosts
+   723→  // an empty profile above a substantive one, and never fabricates data.
+   724→  let weighted = 0
+   725→  for (const component of Object.values(components)) {
+   726→    const score = component.available ? component.score : NEUTRAL_COMPONENT_SCORE
+   727→    weighted += DISCOVERY_WEIGHTS[component.key] * score
+   728→  }
+   729→  const total = weighted * 100
+   730→
+   731→  return {
+   732→    candidate,
+   733→    components,
+   734→    total,
+   735→    distanceKm,
+   736→    distanceBand: distanceKm !== null ? distanceBandFor(distanceKm) : null,
+   737→    exactLocation,
+   738→    reasons: [...new Set(reasons)],
+   739→  }
+   740→}
+   741→
+   742→// -----------------------------------------------------------------------------
+   743→// Sorting (PART 15 — unavailable information never falsely ranks)
+   744→// -----------------------------------------------------------------------------
+   745→
+   746→function sortScored(scored: ScoredCandidate[], sort: DiscoveryQuery['sort']): ScoredCandidate[] {
+   747→  const byScore = (a: ScoredCandidate, b: ScoredCandidate) => b.total - a.total || a.candidate.id.localeCompare(b.candidate.id)
+   748→  const list = [...scored]
+   749→
+   750→  switch (sort) {
+   751→    case 'nearest':
+   752→      return list.sort((a, b) => {
+   753→        if (a.distanceKm === null && b.distanceKm === null) return byScore(a, b)
+   754→        if (a.distanceKm === null) return 1
+   755→        if (b.distanceKm === null) return -1
+   756→        return a.distanceKm - b.distanceKm || byScore(a, b)
+   757→      })
+   758→    case 'rating':
+   759→      return list.sort((a, b) => {
+   760→        const aRated = a.candidate.ratingCount >= RATING_MIN_COUNT
+   761→        const bRated = b.candidate.ratingCount >= RATING_MIN_COUNT
+   762→        if (aRated !== bRated) return aRated ? -1 : 1
+   763→        if (aRated && bRated) {
+   764→          const aAvg = a.candidate.ratingSum / a.candidate.ratingCount
+   765→          const bAvg = b.candidate.ratingSum / b.candidate.ratingCount
+   766→          if (bAvg !== aAvg) return bAvg - aAvg
+   767→        }
+   768→        return byScore(a, b)
+   769→      })
+   770→    case 'experience':
+   771→      return list.sort(
+   772→        (a, b) => b.candidate.yearsExperience - a.candidate.yearsExperience || byScore(a, b),
+   773→      )
+   774→    case 'price':
+   775→      return list.sort((a, b) => {
+   776→        if (a.candidate.startingPriceAmount === null && b.candidate.startingPriceAmount === null) return byScore(a, b)
+   777→        if (a.candidate.startingPriceAmount === null) return 1
+   778→        if (b.candidate.startingPriceAmount === null) return -1
+   779→        return a.candidate.startingPriceAmount - b.candidate.startingPriceAmount || byScore(a, b)
+   780→      })
+   781→    case 'response':
+   782→      return list.sort((a, b) => {
+   783→        if (a.candidate.responseRatePercent === null && b.candidate.responseRatePercent === null) return byScore(a, b)
+   784→        if (a.candidate.responseRatePercent === null) return 1
+   785→        if (b.candidate.responseRatePercent === null) return -1
+   786→        return b.candidate.responseRatePercent - a.candidate.responseRatePercent || byScore(a, b)
+   787→      })
+   788→    default:
+   789→      return list.sort(byScore)
+   790→  }
+   791→}
+   792→
+   793→// -----------------------------------------------------------------------------
+   794→// The pipeline (PART 20)
+   795→// -----------------------------------------------------------------------------
+   796→
+   797→export async function discoverProviders(query: DiscoveryQuery): Promise<DiscoveryResponse> {
+   798→  const [location, category] = await Promise.all([resolveLocation(query), resolveCategory(query)])
+   799→
+   800→  // Service search implies the service's own category for scoring purposes.
+   801→  let serviceId: string | null = null
+   802→  let effectiveCategory = category
+   803→  if (query.serviceId) {
+   804→    const service = await db.service.findFirst({
+   805→      where: { id: query.serviceId, status: 'ACTIVE', deletedAt: null },
+   806→      select: { id: true, categoryId: true, category: { select: { id: true, name: true, slug: true } } },
+   807→    })
+   808→    if (!service) throw new ValidationError({ serviceId: ['Unknown service'] })
+   809→    serviceId = service.id
+   810→    if (!effectiveCategory) {
+   811→      effectiveCategory = {
+   812→        id: service.category.id,
+   813→        name: service.category.name,
+   814→        slug: service.category.slug,
+   815→        description: null,
+   816→        subtreeIds: [service.category.id],
+   817→      }
+   818→    }
+   819→  }
+   820→
+   821→  // ---- Hard filters (PART 10) ---------------------------------------------
+   822→  // Conditions are composed as an AND list so independent OR-shapes (location
+   823→  // scope vs free-text q) can never collide on a top-level `OR` key.
+   824→  const baseConditions: Record<string, unknown>[] = [
+   825→    // Suspension is a LIVE user-status check (PART 45) — suspended providers
+   826→    // never appear publicly, even mid-session.
+   827→    { user: { status: 'ACTIVE' } },
+   828→  ]
+   829→  if (query.verification) baseConditions.push({ verificationStatus: query.verification })
+   830→  if (query.availability) baseConditions.push({ availabilityStatus: query.availability })
+   831→  if (query.providerType === 'INDIVIDUAL') baseConditions.push({ businessId: null })
+   832→  if (query.providerType === 'BUSINESS') baseConditions.push({ businessId: { not: null } })
+   833→  if (query.maxPrice !== undefined) {
+   834→    baseConditions.push({ startingPriceAmount: { lte: query.maxPrice, not: null } })
+   835→  }
+   836→  if (effectiveCategory) {
+   837→    baseConditions.push({
+   838→      services: {
+   839→        some: {
+   840→          status: 'ACTIVE',
+   841→          deletedAt: null,
+   842→          isAvailable: true,
+   843→          categoryId: { in: effectiveCategory.subtreeIds },
+   844→          ...(serviceId ? { id: serviceId } : {}),
+   845→        },
+   846→      },
+   847→    })
+   848→  }
+   849→  if (query.q) {
+   850→    baseConditions.push({
+   851→      OR: [
+   852→        { profession: { contains: query.q.toLowerCase() } },
+   853→        { headline: { contains: query.q } },
+   854→        { biography: { contains: query.q } },
+   855→        { business: { name: { contains: query.q } } },
+   856→      ],
+   857→    })
+   858→  }
+   859→  const locationCondition = locationWhere(location.scope)
+   860→  // `where` = base hard filters + the exact location tier. `baseConditions`
+   861→  // itself stays location-free: the nearby fallback reuses it with a swapped
+   862→  // location condition (requested town → nearby towns).
+   863→  const where = {
+   864→    deletedAt: null,
+   865→    AND:
+   866→      Object.keys(locationCondition).length > 0
+   867→        ? [...baseConditions, locationCondition]
+   868→        : baseConditions,
+   869→  }
+   870→  const serviceSelect = {
+   871→    where: {
+   872→      status: 'ACTIVE' as const,
+   873→      deletedAt: null as null,
+   874→      ...(effectiveCategory ? { categoryId: { in: effectiveCategory.subtreeIds } } : {}),
+   875→    },
+   876→    select: { name: true, categoryId: true },
+   877→    take: 10,
+   878→  }
+   879→
+   880→  // ---- Fetch candidates (single query, capped, minimal selects) ------------
+   881→  const rows = await db.providerProfile.findMany({
+   882→    where,
+   883→    take: DISCOVERY_CANDIDATE_CAP,
+   884→    select: { ...CANDIDATE_SELECT, services: serviceSelect },
+   885→  })
+   886→
+   887→  const candidates: Candidate[] = rows.map((row) => {
+   888→    const shaped = shapeCandidate(row)
+   889→    shaped.matchedServices = row.services
+   890→    return shaped
+   891→  })
+   892→
+   893→  // Post-fetch hard filters that SQL cannot express on SQLite (rating).
+   894→  const minRating = query.minRating ?? null
+   895→  const eligible = candidates.filter((candidate) => {
+   896→    if (minRating !== null && minRating > 0) {
+   897→      if (candidate.ratingCount < RATING_MIN_COUNT) return false
+   898→      if (candidate.ratingSum / candidate.ratingCount < minRating) return false
+   899→    }
+   900→    return true
+   901→  })
+   902→
+   903→  // ---- Score, filter by distance, sort, paginate ---------------------------
+   904→  const scoringContext = { category: effectiveCategory, location, maxDistanceKm: query.maxDistanceKm ?? null }
+   905→  let scored = eligible
+   906→    .map((candidate) => scoreCandidate(candidate, scoringContext))
+   907→    .filter((s) => {
+   908→      if (query.maxDistanceKm !== undefined && s.distanceKm !== null) {
+   909→        return s.distanceKm <= query.maxDistanceKm
+   910→      }
+   911→      return true
+   912→    })
+   913→
+   914→  // Duplicate prevention is structural: one row per ProviderProfile.
+   915→  const seen = new Set<string>()
+   916→  scored = scored.filter((s) => (seen.has(s.candidate.id) ? false : (seen.add(s.candidate.id), true)))
+   917→
+   918→  const ranked = sortScored(scored, query.sort)
+   919→  const total = ranked.length
+   920→  const page = query.page
+   921→  const pageSize = query.pageSize
+   922→  const pageItems = ranked.slice((page - 1) * pageSize, (page - 1) * pageSize + pageSize)
+   923→
+   924→  // ---- Nearby fallback (PART 18) — only when nothing matched exactly and a
+   925→  // real search point exists to measure "nearby" from --------------------------
+   926→  let nearby: DiscoveryResponse['nearby'] = null
+   927→  if (total === 0 && location.point) {
+   928→    const nearbyTowns = await db.town.findMany({
+   929→      where: {
+   930→        isActive: true,
+   931→        latitude: { not: null },
+   932→        longitude: { not: null },
+   933→      },
+   934→      select: { id: true, name: true, latitude: true, longitude: true },
+   935→    })
+   936→    const within = nearbyTowns
+   937→      .filter((town) => {
+   938→        const d = haversineKmLocal(
+   939→          location.point!,
+   940→          { latitude: town.latitude as number, longitude: town.longitude as number },
+   941→        )
+   942→        return d <= NEARBY_RADIUS_KM && d > 0.5
+   943→      })
+   944→      .map((town) => ({
+   945→        town,
+   946→        distanceKm: haversineKmLocal(
+   947→          location.point!,
+   948→          { latitude: town.latitude as number, longitude: town.longitude as number },
+   949→        ),
+   950→      }))
+   951→      .sort((a, b) => a.distanceKm - b.distanceKm)
+   952→      .slice(0, 12)
+   953→
+   954→    if (within.length > 0) {
+   955→      // Nearby keeps EVERY hard filter (service, eligibility, status) but
+   956→      // swaps the requested-location condition for the nearby-town set — the
+   957→      // customer's original selection is never silently replaced (PART 18).
+   958→      const nearbyRows = await db.providerProfile.findMany({
+   959→        where: {
+   960→          deletedAt: null,
+   961→          AND: [
+   962→            ...baseConditions,
+   963→            { serviceAreas: { some: { locationId: { in: within.map((w) => w.town.id) } } } },
+   964→          ],
+   965→        },
+   966→        take: DISCOVERY_CANDIDATE_CAP,
+   967→        select: { ...CANDIDATE_SELECT, services: serviceSelect },
+   968→      })
+   969→      const distanceByTown = new Map(within.map((w) => [w.town.id, w.distanceKm]))
+   970→      const nearbyScored = nearbyRows
+   971→        .map((row) => {
+   972→          const shaped = shapeCandidate(row)
+   973→          shaped.matchedServices = row.services
+   974→          const scoredCandidate = scoreCandidate(shaped, scoringContext)
+   975→          // Nearest served town drives the nearby label.
+   976→          const served = shaped.serviceAreas.find((a) => distanceByTown.has(a.location.id))
+   977→          scoredCandidate.distanceKm = served ? (distanceByTown.get(served.location.id) ?? null) : null
+   978→          scoredCandidate.distanceBand = scoredCandidate.distanceKm !== null ? distanceBandFor(scoredCandidate.distanceKm) : null
+   979→          scoredCandidate.reasons = [
+   980→            ...scoredCandidate.reasons.filter((r) => !r.startsWith('About ') && !r.startsWith('Serves')),
+   981→            served ? `Serves ${served.location.name}` : 'Nearby provider',
+   982→          ]
+   983→          return scoredCandidate
+   984→        })
+   985→        .sort((a, b) => (a.distanceKm ?? Infinity) - (b.distanceKm ?? Infinity) || b.total - a.total)
+   986→      nearby = {
+   987→        label: 'Nearby providers',
+   988→        items: nearbyScored.slice(0, pageSize).map(toResult),
+   989→        total: nearbyScored.length,
+   990→      }
+   991→    }
+   992→  }
+   993→
+   994→  // ---- Location context for breadcrumbs / empty states ---------------------
+   995→  const nearbyAreas = await resolveNearbyAreas(location)
+   996→  const locationContext: DiscoveryLocationContext = {
+   997→    level: location.level,
+   998→    label: location.label,
+   999→    breadcrumb: location.breadcrumb,
+  1000→    nearbyAreas,
+  1001→  }
+  1002→
+  1003→  return {
+  1004→    criteria: {
+  1005→      categoryId: effectiveCategory?.id ?? null,
+  1006→      categoryName: effectiveCategory?.name ?? null,
+  1007→      categorySlug: effectiveCategory?.slug ?? null,
+  1008→      serviceId,
+  1009→      regionId: query.regionId ?? null,
+  1010→      districtId: query.districtId ?? null,
+  1011→      townId: query.townId ?? null,
+  1012→      communityId: query.communityId ?? null,
+  1013→      providerType: query.providerType ?? null,
+  1014→      verification: query.verification ?? null,
+  1015→      availability: query.availability ?? null,
+  1016→      minRating: query.minRating ?? null,
+  1017→      maxPrice: query.maxPrice ?? null,
+  1018→      q: query.q ?? null,
+  1019→      sort: query.sort,
+  1020→      whatLabel: effectiveCategory?.name ?? (query.q ? `“${query.q}”` : 'Providers'),
+  1021→    },
+  1022→    location: locationContext,
+  1023→    items: pageItems.map(toResult),
+  1024→    pagination: buildPaginationMeta(total, page, pageSize),
+  1025→    nearby,
+  1026→  }
+  1027→}
+  1028→
+  1029→/** Suggested nearby areas for empty states: same-district towns, then towns
+  1030→ *  within the nearby radius, then nothing (the UI hides the block). */
+  1031→async function resolveNearbyAreas(location: ResolvedLocation): Promise<DiscoveryLocationContext['nearbyAreas']> {
+  1032→  if (location.scope.kind === 'town') {
+  1033→    const town = await db.town.findFirst({
+  1034→      where: { id: location.scope.townId },
+  1035→      select: { districtId: true, id: true, latitude: true, longitude: true },
+  1036→    })
+  1037→    if (!town) return []
+  1038→
+  1039→    if (town.latitude !== null && town.longitude !== null) {
+  1040→      const point = { latitude: town.latitude, longitude: town.longitude }
+  1041→      const towns = await db.town.findMany({
+  1042→        where: { isActive: true, id: { not: town.id }, latitude: { not: null }, longitude: { not: null } },
+  1043→        select: { id: true, name: true, slug: true, latitude: true, longitude: true, isMajor: true },
+  1044→        orderBy: [{ isMajor: 'desc' }, { name: 'asc' }],
+  1045→      })
+  1046→      return towns
+  1047→        .map((t) => ({
+  1048→          id: t.id,
+  1049→          name: t.name,
+  1050→          slug: t.slug,
+  1051→          isMajor: t.isMajor,
+  1052→          distanceKm: haversineKmLocal(point, {
+  1053→            latitude: t.latitude as number,
+  1054→            longitude: t.longitude as number,
+  1055→          }),
+  1056→        }))
+  1057→        .filter((t) => t.distanceKm <= NEARBY_RADIUS_KM)
+  1058→        .sort((a, b) => a.distanceKm - b.distanceKm)
+  1059→        .slice(0, 6)
+  1060→        .map(({ id, name, slug, distanceKm }) => ({ id, name, slug, distanceKm }))
+  1061→    }
+  1062→
+  1063→    const siblings = await db.town.findMany({
+  1064→      where: { districtId: town.districtId, isActive: true, id: { not: town.id } },
+  1065→      select: { id: true, name: true, slug: true },
+  1066→      orderBy: { name: 'asc' },
+  1067→      take: 6,
+  1068→    })
+  1069→    return siblings.map((t) => ({ ...t, distanceKm: null }))
+  1070→  }
+  1071→
+  1072→  if (location.scope.kind === 'district') {
+  1073→    const towns = await db.town.findMany({
+  1074→      where: { districtId: location.scope.districtId, isActive: true },
+  1075→      select: { id: true, name: true, slug: true },
+  1076→      orderBy: [{ isMajor: 'desc' }, { name: 'asc' }],
+  1077→      take: 6,
+  1078→    })
+  1079→    return towns.map((t) => ({ ...t, distanceKm: null }))
+  1080→  }
+  1081→
+  1082→  return []
+  1083→}
+  1084→
+  1085→/** Maps a scored candidate to the public result shape (privacy final gate). */
+  1086→function toResult(scored: ScoredCandidate): DiscoveryResult {
+  1087→  const c = scored.candidate
+  1088→  const rating =
+  1089→    c.ratingCount >= RATING_MIN_COUNT
+  1090→      ? { average: Math.round((c.ratingSum / c.ratingCount) * 10) / 10, count: c.ratingCount }
+  1091→      : null
+  1092→
+  1093→  const areas = c.serviceAreas.map(({ location }) => ({
+  1094→    id: location.id,
+  1095→    name: location.name,
+  1096→    regionName: location.regionName,
+  1097→  }))
+  1098→  const base = c.primaryLocation
+  1099→    ? [{ id: c.primaryLocation.id, name: c.primaryLocation.name, regionName: c.primaryLocation.regionName }]
+  1100→    : []
+  1101→  const merged = [...base]
+  1102→  for (const area of areas) {
+  1103→    if (merged.length >= 5) break
+  1104→    if (!merged.some((m) => m.id === area.id)) merged.push(area)
+  1105→  }
+  1106→
+  1107→  return {
+  1108→    providerId: c.id,
+  1109→    displayName: c.business?.name ?? c.user.name ?? 'Dwellers provider',
+  1110→    providerType: c.businessId ? 'BUSINESS' : 'INDIVIDUAL',
+  1111→    businessId: c.businessId,
+  1112→    businessName: c.business?.name ?? null,
+  1113→    profession: c.profession,
+  1114→    headline: c.headline,
+  1115→    avatarKey: c.user.avatarKey,
+  1116→    verificationStatus: c.verificationStatus,
+  1117→    rating,
+  1118→    yearsExperience: c.yearsExperience,
+  1119→    availabilityStatus: c.availabilityStatus,
+  1120→    startingPriceAmount: c.startingPriceAmount,
+  1121→    currency: c.currency,
+  1122→    completedJobsCount: c.completedJobsCount,
+  1123→    primaryLocation: base[0] ?? null,
+  1124→    serviceAreas: merged,
+  1125→    serviceAreaCount: new Set([...areas.map((a) => a.id), ...(base.length ? [base[0].id] : [])]).size,
+  1126→    matchedServiceNames: [...new Set(c.matchedServices.map((s) => s.name))].slice(0, 3),
+  1127→    portfolioCount: c.portfolioCount,
+  1128→    distanceKm: scored.distanceKm !== null ? Math.round(scored.distanceKm) : null,
+  1129→    distanceBand: scored.distanceBand?.label ?? null,
+  1130→    reasons: scored.reasons,
+  1131→  }
+  1132→}
+  1133→
+  1134→// -----------------------------------------------------------------------------
+  1135→// Public provider profile (PART 8) — privacy-safe by construction
+  1136→// -----------------------------------------------------------------------------
+  1137→
+  1138→export interface PublicProviderProfile {
+  1139→  id: string
+  1140→  displayName: string
+  1141→  providerType: 'INDIVIDUAL' | 'BUSINESS'
+  1142→  business: { id: string; name: string } | null
+  1143→  profession: string
+  1144→  headline: string | null
+  1145→  biography: string | null
+  1146→  yearsExperience: number
+  1147→  availabilityStatus: string
+  1148→  startingPriceAmount: number | null
+  1149→  currency: string
+  1150→  verificationStatus: string
+  1151→  rating: DiscoveryRating | null
+  1152→  completedJobsCount: number
+  1153→  responseRatePercent: number | null
+  1154→  primaryLocation: { id: string; name: string; regionName: string | null; districtName: string | null } | null
+  1155→  serviceAreas: { id: string; name: string; regionName: string | null }[]
+  1156→  services: {
+  1157→    id: string
+  1158→    name: string
+  1159→    description: string | null
+  1160→    pricingModel: string
+  1161→    startingPriceAmount: number | null
+  1162→    currency: string
+  1163→  }[]
+  1164→  reviews: {
+  1165→    id: string
+  1166→    rating: number
+  1167→    comment: string | null
+  1168→    createdAt: string
+  1169→    reviewerName: string // first name only — reviewer privacy
+  1170→    isVerifiedEngagement: boolean
+  1171→  }[]
+  1172→  reviewBreakdown: { average: number; count: number; buckets: { star: number; count: number }[] }
+  1173→  portfolio: {
+  1174→    id: string
+  1175→    title: string
+  1176→    description: string | null
+  1177→    completedAt: string | null
+  1178→    imageKeys: string[]
+  1179→  }[]
+  1180→  memberSince: string
+  1181→}
+  1182→
+  1183→/**
+  1184→ * Loads everything the public profile page needs in a fixed number of
+  1185→ * queries (profile + services + reviews + portfolio + areas), excluding ALL
+  1186→ * private contact data (PART 33): no emails, no phone numbers, no raw
+  1187→ * coordinates. Suspended/deleted providers 404 (PART 45 — never public).
+  1188→ */
+  1189→export async function getPublicProviderProfile(id: string): Promise<PublicProviderProfile> {
+  1190→  const provider = await db.providerProfile.findFirst({
+  1191→    where: { id, deletedAt: null, user: { status: 'ACTIVE' } },
+  1192→    select: {
+  1193→      id: true,
+  1194→      userId: true,
+  1195→      businessId: true,
+  1196→      profession: true,
+  1197→      headline: true,
+  1198→      biography: true,
+  1199→      yearsExperience: true,
+  1200→      availabilityStatus: true,
+  1201→      startingPriceAmount: true,
+  1202→      currency: true,
+  1203→      verificationStatus: true,
+  1204→      ratingSum: true,
+  1205→      ratingCount: true,
+  1206→      completedJobsCount: true,
+  1207→      responseRatePercent: true,
+  1208→      createdAt: true,
+  1209→      user: { select: { name: true, avatarKey: true, createdAt: true } },
+  1210→      business: { select: { id: true, name: true } },
+  1211→      primaryLocation: {
+  1212→        select: { id: true, name: true, district: { select: { name: true } }, region: { select: { name: true } } },
+  1213→      },
+  1214→      serviceAreas: {
+  1215→        select: { location: { select: { id: true, name: true, region: { select: { name: true } } } } },
+  1216→      },
+  1217→      services: {
+  1218→        where: { status: 'ACTIVE', deletedAt: null },
+  1219→        select: { id: true, name: true, description: true, pricingModel: true, startingPriceAmount: true, currency: true },
+  1220→        orderBy: { createdAt: 'desc' },
+  1221→        take: 12,
+  1222→      },
+  1223→      reviews: {
+  1224→        where: { status: 'PUBLISHED', deletedAt: null },
+  1225→        select: {
+  1226→          id: true,
+  1227→          ratingOverall: true,
+  1228→          comment: true,
+  1229→          createdAt: true,
+  1230→          isVerifiedEngagement: true,
+  1231→          reviewer: { select: { name: true } },
+  1232→        },
+  1233→        orderBy: { createdAt: 'desc' },
+  1234→        take: 20,
+  1235→      },
+  1236→      portfolioItems: {
+  1237→        where: { deletedAt: null },
+  1238→        select: {
+  1239→          id: true,
+  1240→          title: true,
+  1241→          description: true,
+  1242→          completedAt: true,
+  1243→          images: { select: { storageKey: true }, orderBy: { sortOrder: 'asc' }, take: 1 },
+  1244→        },
+  1245→        orderBy: [{ isFeatured: 'desc' }, { createdAt: 'desc' }],
+  1246→        take: 12,
+  1247→      },
+  1248→    },
+  1249→  })
+  1250→  if (!provider) throw new NotFoundError('Provider')
+  1251→
+  1252→  const buckets = new Map<number, number>([1, 2, 3, 4, 5].map((star) => [star, 0]))
+  1253→  for (const review of provider.reviews) {
+  1254→    buckets.set(review.ratingOverall, (buckets.get(review.ratingOverall) ?? 0) + 1)
+  1255→  }
+  1256→
+  1257→  const areas = provider.serviceAreas.map(({ location }) => ({
+  1258→    id: location.id,
+  1259→    name: location.name,
+  1260→    regionName: location.region?.name ?? null,
+  1261→  }))
+  1262→  const areaIds = new Set(areas.map((a) => a.id))
+  1263→  const base = provider.primaryLocation
+  1264→    ? {
+  1265→        id: provider.primaryLocation.id,
+  1266→        name: provider.primaryLocation.name,
+  1267→        regionName: provider.primaryLocation.region?.name ?? null,
+  1268→        districtName: provider.primaryLocation.district?.name ?? null,
+  1269→      }
+  1270→    : null
+  1271→
+  1272→  return {
+  1273→    id: provider.id,
+  1274→    displayName: provider.business?.name ?? provider.user.name ?? 'Dwellers provider',
+  1275→    providerType: provider.businessId ? 'BUSINESS' : 'INDIVIDUAL',
+  1276→    business: provider.business,
+  1277→    profession: provider.profession,
+  1278→    headline: provider.headline,
+  1279→    biography: provider.biography,
+  1280→    yearsExperience: provider.yearsExperience,
+  1281→    availabilityStatus: provider.availabilityStatus,
+  1282→    startingPriceAmount: provider.startingPriceAmount,
+  1283→    currency: provider.currency,
+  1284→    verificationStatus: provider.verificationStatus,
+  1285→    rating:
+  1286→      provider.ratingCount >= RATING_MIN_COUNT
+  1287→        ? {
+  1288→            average: Math.round((provider.ratingSum / provider.ratingCount) * 10) / 10,
+  1289→            count: provider.ratingCount,
+  1290→          }
+  1291→        : provider.ratingCount > 0
+  1292→          ? { average: Math.round((provider.ratingSum / provider.ratingCount) * 10) / 10, count: provider.ratingCount }
+  1293→          : null,
+  1294→    completedJobsCount: provider.completedJobsCount,
+  1295→    responseRatePercent: provider.responseRatePercent,
+  1296→    primaryLocation: base,
+  1297→    serviceAreas: areas,
+  1298→    services: provider.services,
+  1299→    reviews: provider.reviews.map((review) => ({
+  1300→      id: review.id,
+  1301→      rating: review.ratingOverall,
+  1302→      comment: review.comment,
+  1303→      createdAt: review.createdAt.toISOString(),
+  1304→      reviewerName: (review.reviewer?.name ?? 'Dwellers user').split(' ')[0],
+  1305→      isVerifiedEngagement: review.isVerifiedEngagement,
+  1306→    })),
+  1307→    reviewBreakdown: {
+  1308→      average: provider.ratingCount > 0 ? Math.round((provider.ratingSum / provider.ratingCount) * 10) / 10 : 0,
+  1309→      count: provider.ratingCount,
+  1310→      buckets: [5, 4, 3, 2, 1].map((star) => ({ star, count: buckets.get(star) ?? 0 })),
+  1311→    },
+  1312→    portfolio: provider.portfolioItems.map((item) => ({
+  1313→      id: item.id,
+  1314→      title: item.title,
+  1315→      description: item.description,
+  1316→      completedAt: item.completedAt?.toISOString() ?? null,
+  1317→      imageKeys: item.images.map((image) => image.storageKey),
+  1318→    })),
+  1319→    memberSince: (provider.user.createdAt ?? provider.createdAt).toISOString(),
+  1320→  }
+  1321→}
+  1322→
+  1323→// Re-export for route modules — DISTANCE_BANDS used by the UI distance legend.
+  1324→export { DISTANCE_BANDS } from '@/modules/discovery/ranking'
+  1325→

@@ -5,6 +5,8 @@
 import { notFound } from 'next/navigation'
 import { getAuthContext } from '@/lib/auth/session'
 import { getJobRequest } from '@/modules/projects/job-request-service'
+import { findOwnQuoteForRequest } from '@/modules/quotes/quote-service'
+import { hasPermission } from '@/lib/auth/permissions'
 import { NotFoundError } from '@/lib/errors'
 import { ProviderRequestDetail, type ProviderRequestView } from '@/components/requests/provider-request-detail'
 
@@ -25,6 +27,15 @@ export default async function ProviderRequestDetailPage({ params }: { params: Pr
   if (request.access.side !== 'PROVIDER') notFound()
 
   const locationLine = [request.community?.name, request.location?.name].filter(Boolean).join(', ')
+  // Phase 6 (PART 3): resolve CREATE QUOTE eligibility server-side.
+  const existingQuote = await findOwnQuoteForRequest(auth, id)
+  const canQuote =
+    request.access.canRespond &&
+    !existingQuote &&
+    request.status === 'RESPONDED' &&
+    request.responseKind === 'INTERESTED' &&
+    hasPermission(auth?.role ?? 'CUSTOMER', 'commerce:quotes:submit')
+
   const view: ProviderRequestView = {
     id: request.id,
     reference: request.reference,
@@ -41,6 +52,10 @@ export default async function ProviderRequestDetailPage({ params }: { params: Pr
     customerDisplayName: request.customer?.displayName ?? null,
     servesLocation: request.servesLocation,
     canRespond: request.access.canRespond,
+    quote: existingQuote ? { id: existingQuote.id, status: existingQuote.status } : null,
+    canCreateQuote: canQuote,
+    createQuoteHref: canQuote ? `/supplier/requests/${id}/quote/new` : null,
+    quoteHref: existingQuote ? `/supplier/quotes/${existingQuote.id}` : null,
     attachments: request.attachments.map((attachment) => ({
       id: attachment.id,
       originalName: attachment.originalName,
