@@ -193,6 +193,17 @@ export function computeQuoteTotals(
   items: QuoteItemInput[],
   discountCedis: number | null | undefined,
 ): ComputedTotals {
+  // Item-count guard lives HERE as well as in the API schema — the service
+  // layer must enforce the protective cap even when called directly
+  // (defense in depth, PART 10).
+  if (items.length === 0) {
+    throw new ValidationError({ items: ['Add at least one quote item.'] })
+  }
+  if (items.length > MAX_QUOTE_ITEMS) {
+    throw new ValidationError({
+      items: [`A quotation can hold at most ${MAX_QUOTE_ITEMS} items.`],
+    })
+  }
   const lines: ComputedLine[] = items.map((item, index) => {
     const quantityMilli = Math.round(item.quantity * 1000)
     if (!Number.isInteger(quantityMilli) || quantityMilli <= 0) {
@@ -687,6 +698,11 @@ function shapeQuoteDetail(quote: QuoteRow, access: QuoteAccess) {
     id: quote.id,
     quoteNumber: quote.quoteNumber,
     status: quote.status,
+    // The resolved ownership chain — proof that linkage fields come from
+    // authorized records, never from the client (PART 42).
+    jobRequestId: quote.jobRequest.id,
+    providerId: quote.provider.id,
+    customerId: quote.customer.id,
     description: quote.description,
     validUntil: quote.validUntil,
     estimatedDurationDays: quote.estimatedDurationDays,

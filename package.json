@@ -18,7 +18,8 @@
     "db:reset": "prisma migrate reset",
     "verify:phase3": "bun scripts/verify-phase3.ts",
     "verify:phase4": "bun scripts/verify-phase4.ts",
-    "verify:phase5": "bun scripts/verify-phase5.ts"
+    "verify:phase5": "bun scripts/verify-phase5.ts",
+    "verify:phase6": "bun scripts/verify-phase6.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
