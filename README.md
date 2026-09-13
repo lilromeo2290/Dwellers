@@ -42,6 +42,7 @@ The long-term product journey: **Find → Compare → Connect → Quote → Buy 
 │   ├── verify-phase3.ts         # `bun run verify:phase3` — auth + onboarding suite
 │   ├── verify-phase4.ts         # `bun run verify:phase4` — discovery suite
 │   ├── verify-phase5.ts         # `bun run verify:phase5` — job-request suite
+│   ├── verify-phase6.ts         # `bun run verify:phase6` — quotation suite
 │   └── seed.ts                  # `bun run db:seed` — Ghana locations, taxonomy,
 │                                #   clearly-marked demo accounts/listings
 ├── src/
@@ -93,6 +94,9 @@ The long-term product journey: **Find → Compare → Connect → Quote → Buy 
 ├── JOB_REQUESTS.md              # Phase 5: request service / job requests —
 │                                #   state machine, wizard, attachments,
 │                                #   responses, notifications, security
+├── QUOTATIONS.md                # Phase 6: quotations — state machine, server-
+│                                #   side pesewa totals, eligibility, expiry,
+│                                #   races, accept/decline, payment boundary
 ├── DATABASE.md                  # Database guide: entities, locations, service
 │                                #   areas, RFQ/quote/project/messaging/payment
 │                                #   architecture, authorization, migrations, seed
@@ -148,6 +152,11 @@ bun run verify:phase5    # 94 checks — job-request lifecycle, state machine,
                          # audit, idempotency, all 10 acceptance tests,
                          # PART 65 IDOR matrix, business-member permissions,
                          # suspension guards, rate limiting, privacy
+bun run verify:phase6    # 109 checks — quotation lifecycle: state machine,
+                         # server-side pesewa totals, money grid, eligibility,
+                         # races (double send / concurrent accept / decline),
+                         # expiry, business permissions, suspension, IDOR
+                         # matrix, price tampering, no-payment assertion
 ```
 
 ### Lint & types
@@ -243,6 +252,10 @@ Never: `update`, `changes`, `test`, `stuff`.
   job-request workflow — lifecycle and state machine, the six-step wizard,
   photo attachments, provider responses, notifications, the audit trail and
   the security model (ownership, IDOR, idempotency).
+- **[QUOTATIONS.md](./QUOTATIONS.md)** — Quotations: the priced answer to a
+  request — quote state machine, itemised server-side pesewa totals, GH₵
+  money policy, eligibility, expiry, race protection, customer accept/decline,
+  the security pipeline and the future payment handoff boundary.
 - **[DATABASE.md](./DATABASE.md)** — the data model: entities, relationships,
   Ghana location hierarchy, service areas, job-request/quote/project/messaging
   architecture, authorization model, migrations, seed and PostgreSQL readiness.

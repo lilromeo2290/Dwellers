@@ -323,6 +323,13 @@ VIEWED → ACCEPTED | DECLINED | EXPIRED | WITHDRAWN`. Each quote has a unique
 human `quoteNumber` (`QT-…`) and `customerId` denormalised from the job for
 fast per-customer queries.
 
+Phase 6 activation (`20260914_phase6_quote_notes`): `notes` column added —
+the only schema change Phase 6 needed; everything else already existed.
+Notes (≤ 5,000 chars, plain text) plus `terms`, `validUntil` and
+`estimatedDurationDays` are now set by the quote lifecycle service. The
+lifecycle, eligibility, races, expiry and the payment boundary are documented
+in QUOTATIONS.md.
+
 ---
 
 ## 10. Projects

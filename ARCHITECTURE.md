@@ -65,6 +65,7 @@ iteration today with clean extraction paths (separate services) later.
 | Marketplace     | categories, services, products, equipment, providers, businesses | `src/modules/marketplace` |
 | Discovery       | search, filtering, locations, recommendations               | `src/modules/discovery` |
 | Projects        | projects, tasks, milestones, budgets, documents, progress   | `src/modules/projects` |
+| Quotes          | quotation state machine, eligibility, pesewa totals, lifecycle | `src/modules/quotes` |
 | Communication   | conversations, messages, attachments, notifications         | `src/modules/communication` |
 | Commerce        | cart, orders, quotations, payments, transactions            | `src/modules/commerce` |
 | Trust           | verification, reviews, ratings, reports                     | `src/modules/trust` |
@@ -333,7 +334,8 @@ control for private objects is enforced by the API routes that serve them.
 | Phase 3 | Authentication, registration & role-based dashboards | ✅ Delivered (see AUTHENTICATION.md) |
 | Phase 4 | Find / Nationwide Discovery (search engine, ranking, SEO landings, provider profiles) | ✅ Delivered (see DISCOVERY.md) |
 | Phase 5 | Request Service / Job Requests (real RFQ workflow, state machine, attachments, notifications) | ✅ Delivered (see JOB_REQUESTS.md) |
-| Phase 6+ | Quotations, payments, messaging, commerce, trust features | Indicative |
+| Phase 6 | Quotations (quote state machine, server-side pesewa totals, accept/decline, payment-boundary handoff) | ✅ Delivered (see QUOTATIONS.md) |
+| Phase 7+ | Payments, messaging, commerce, trust features | Indicative |
 
 Phase sequencing is confirmed per product priorities. **The project does not
-proceed to Phase 6 without explicit instruction.**
+proceed to Phase 7 without explicit instruction.**
