@@ -231,3 +231,29 @@ Stage Summary:
 - PHASE 5 COMPLETE: Request Service is a REAL workflow end to end — central state machine, idempotent submissions, atomic events+notifications, authorization-checked photos, business-member scoping, suspended-account guards — 377/377 checks, 26/26 E2E steps, clean-database rebuild green.
 - Deliberate deferrals per PART 81: quotations/payments, WhatsApp/SMS/email, full messaging UI, equipment rental, project management, AI, dashboards. Quote model untouched and ready.
 - Project at the PHASE 6 gate (Quotations). NOT started; awaiting project owner approval.
+
+---
+Task ID: 12
+Agent: main (Super Z)
+Task: PHASE 6 — QUOTATIONS (87-part requirements, approved via "6" + spec upload)
+
+Work Log:
+- Verified Phase 5 COMPLETE from worklog Task 11; identified the new upload as the Phase 6 spec (QUOTATIONS, 2725 lines / 87 parts). Interpreted "6" as Phase 6 approval.
+- Audited the foundation per PART 1: Quote/QuoteItem models complete since Phase 2 (QT reference, component amounts, validUntil, terms; items with kind/quantityMilli/unitPrice/lineTotal), finance.ts money helpers, commerce:quotes:* permissions in the Phase 1 matrix, job-request machine with RESPONDED/INTERESTED as the quote-eligible state, handler factory, notifications, audit, analytics, seed, verify harness.
+- Environment repair (recurring post-rebuild pattern): .env missing AUTH_SECRET → regenerated; dev DB had been db-push'ed without migration history → rebuilt from migrations + reseeded; later restored RATE_LIMIT_ENABLED=true for the phase5 flood test.
+- One schema gap: Quote had no notes column (PART 18) → migration 20260914_phase6_quote_notes via the non-destructive diff-and-deploy flow. Everything else reused untouched.
+- Engine commit 8db5ba2: quote-state.ts (existing vocabulary preserved; spec SENT≡SUBMITTED, CANCELLED≡WITHDRAWN documented); quote-service.ts (PART 2 eligibility ladder, computeQuoteTotals in integer pesewas via finance helpers, fixed discount ≤ subtotal, no tax invented, required validity ≤ 730d, one quote per provider/request, conditional-update race guards, lazy EXPIRED on read/accept, accept moves JobRequest RESPONDED→ACCEPTED via a new accept_quote transition inside the tx); 8 API endpoints through the factory pipeline; quote.* audit actions, QUOTE_* notifications, quote_* analytics, QUOTE_* timeline events.
+- Frontend commit d5dd265: quote form (compose→preview, dynamic items ≤50, mobile cards/desktop table), professional quote document (grouped items, subtotal→discount→total, accept/decline dialogs restating total/provider/job/validity, print stylesheet), quotes boards with server-side status filters, request-detail comparison panel, CREATE QUOTE wiring ×5 provider dashboards (supplier/equipment honestly excluded per the Phase 1 matrix), customer MY QUOTATIONS + provider QUOTATIONS pages ×3 roles, nav flips.
+- Tests commit 8a9c487: verify:phase6 — 109 checks (machine rules, PART 67 arithmetic, PART 45 money grid, eligibility ladder, PART 63 business OWNER/MANAGER/MEMBER, PART 64 suspension, PART 46/47/78 concurrent send/accept/decline races, audit/analytics integrity, HTTP acceptance matrix, PART 43 IDOR matrix, PART 44 tamper-strip, PART 73 customer PATCH refusal, PART 51 no-payment assertion). Engine hardened from findings: item cap enforced in computeQuoteTotals (defense in depth), detail shape exposes the resolved ownership chain.
+- E2E commit e257683 found and fixed 2 real defects: (1) the form's client money mirror mixed cedis/pesewas and displayed 10× small amounts (stored values were never wrong); (2) discount null rejected by optional()-only schema (form sends null to clear). Evidence screenshots in scripts/e2e-p6/.
+- Docs commit 9332f20: QUOTATIONS.md (13 sections); ARCHITECTURE/DATABASE/README updated (Quotes module row, phase 6 ledger, notes migration, verify:phase6).
+- Battery fresh-run: lint 0; tsc 0; verify 48/48; verify:phase2 106/106; verify:phase3 73/73; verify:phase4 56/56; verify:phase5 94/94; verify:phase6 109/109 = 486/486.
+- Clean-DB test: rm dev.db → migrate deploy (6 migrations) → seed → server healthy → all six suites green on the fresh DB.
+- Browser E2E (agent-browser): PART 79 28-step flow (Raymond → request → Kwame INTERESTED → CREATE QUOTE → 3 items → preview GH₵530.00 → send → notification → VIEWED on open → accept dialog → ACCEPTED → provider notified + sees Accepted) + PART 80 decline flow with optional reason; zero horizontal overflow at 390/768/1440 across form/boards/documents/request detail; zero critical console errors.
+- Report commit 38788f7: Template 01 HUD cover (cover_validate PASS) + 18-chapter body (all 40 PART 87 items) → 20-page PDF; preflight font.check 0, toc.check pass, no blanks, pdf_qa WARN-only (accepted callout-row pattern); last page filled with handover subsection. A merge-script path slip briefly overwrote the Phase 5 PDF — restored from git, md5 verified identical.
+
+Stage Summary:
+- PHASE 6 COMPLETE: quotations are a real, tamper-proof workflow — server-calculated integer-pesewa totals, central state machine on the preserved Phase 2 vocabulary, eligibility ladder, lazy expiry, race-safe decisions, business-member scoping, suspended-account guards, notifications/timeline/audit on every action — 486/486 checks, 28+6 E2E steps, clean-database rebuild green.
+- Deliberate deferrals per FINAL RULE: payments/escrow/checkout, WhatsApp/SMS/email, quote revisions, tax, PDF generator, comparison AI. Payment handoff boundary: Quote ACCEPTED → payment phase.
+- Delivered /home/z/my-project/download/Dwellers_Phase6_Quotations_Report.pdf (20 pages).
+- Project at the PHASE 7 gate. NOT started; awaiting project owner approval.
